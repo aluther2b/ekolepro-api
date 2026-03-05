@@ -47,7 +47,7 @@ function verifyToken(token) {
 /* ====================================
    HEALTH CHECK
 ==================================== */
-router.get("/api/health", (req, res) => {
+router.get("/health", (req, res) => {
   res.json({
     name: "EKOLEPRO Backend",
     status: "OK",

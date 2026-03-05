@@ -75,6 +75,6 @@ export const PAYMENT_CONFIG = {
       process.env.PAYDUNYA_CALLBACK_URL ||
       (isProduction
         ? null
-        : "https://tamie-accusatorial-apryl.ngrok-free.dev/api/callbacks/paydunya"),
+        : "https://ekolepro-api.onrender.com/api/callbacks/paydunya"),
   },
 };
