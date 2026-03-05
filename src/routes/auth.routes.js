@@ -108,7 +108,6 @@ router.post("/login", async (req, res) => {
     /* ===============================
        SESSION MANAGEMENT
     =============================== */
-
     const finalDeviceId = device_id || crypto.randomUUID();
 
     // Désactiver ancienne session active sur le même appareil
@@ -133,7 +132,6 @@ router.post("/login", async (req, res) => {
     /* ===============================
        RESPONSE
     =============================== */
-
     res.json({
       success: true,
       accessToken,

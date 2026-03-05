@@ -64,14 +64,14 @@ app.use("/api/sync", requireAuth, syncRoutes);
 app.use("/api/recovery", requireAuth, recoveryRoutes);
 
 /* ================= ROUTES ADMIN ================= */
-app.use("/api/admin/stats", requireAuth, requireAdmin, adminRoutes);
+app.use("/api/admin", requireAuth, requireAdmin, adminRoutes);
 app.use("/api/admin/ecoles", requireAuth, requireAdmin, adminEcolesRoutes);
 app.use("/api/admin/devices", requireAuth, requireAdmin, adminDevicesRoutes);
 app.use("/api/admin/sessions", requireAuth, requireAdmin, adminSessionsRoutes);
 app.use("/api/admin/audit", requireAuth, requireAdmin, adminAuditRoutes);
 app.use("/api/admin/history", requireAuth, requireAdmin, adminHistoryRoutes);
 app.use("/api/admin/filters", requireAuth, requireAdmin, filtersRoutes);
-app.use("/api/admin/stats", adminStatsRoutes);
+app.use("/api/admin/stats", requireAuth, requireAdmin, adminStatsRoutes);
 
 /* ================= 404 HANDLER ================= */
 app.use((req, res) => {
