@@ -45,7 +45,7 @@ function verifyToken(token) {
 }
 
 /* ====================================
-   HEALTH CHECK
+   HEALTH CHECK (optionnel)
 ==================================== */
 router.get("/health", (req, res) => {
   res.json({
@@ -272,6 +272,217 @@ router.get("/me", async (req, res) => {
   } catch (err) {
     console.error("❌ Me error:", err);
     res.status(500).json({ error: "internal_error" });
+  }
+});
+
+/* =========================================================
+   NOUVELLES ROUTES PUBLIQUES POUR L'INSCRIPTION
+   ========================================================= */
+
+/** GET /drenas : liste distincte des DRENA */
+router.get("/drenas", async (req, res) => {
+  try {
+    const { data, error } = await supabaseService
+      .from("ecoles")
+      .select("drena")
+      .not("drena", "is", null)
+      .order("drena");
+
+    if (error) throw error;
+
+    const drenas = [...new Set(data.map(item => item.drena))];
+    res.json(drenas);
+  } catch (err) {
+    console.error("❌ Erreur /drenas:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+/** GET /iepps?drena=... : liste distincte des IEPP pour une DRENA */
+router.get("/iepps", async (req, res) => {
+  try {
+    const { drena } = req.query;
+    if (!drena) return res.status(400).json({ error: "drena requis" });
+
+    const { data, error } = await supabaseService
+      .from("ecoles")
+      .select("iepp")
+      .eq("drena", drena)
+      .not("iepp", "is", null)
+      .order("iepp");
+
+    if (error) throw error;
+
+    const iepps = [...new Set(data.map(item => item.iepp))];
+    res.json(iepps);
+  } catch (err) {
+    console.error("❌ Erreur /iepps:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+/** GET /ecoles?drena=...&iepp=... : écoles filtrées */
+router.get("/ecoles", async (req, res) => {
+  try {
+    const { drena, iepp } = req.query;
+    if (!drena || !iepp) {
+      return res.status(400).json({ error: "drena et iepp requis" });
+    }
+
+    const { data, error } = await supabaseService
+      .from("ecoles")
+      .select("id, nom")
+      .eq("drena", drena)
+      .eq("iepp", iepp)
+      .order("nom");
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Erreur /ecoles:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+/** GET /director-exists?name=... : vérifie si un directeur existe déjà */
+router.get("/director-exists", async (req, res) => {
+  try {
+    const { name } = req.query;
+    if (!name) return res.status(400).json({ error: "name requis" });
+
+    const { data, error } = await supabaseService
+      .from("ecoles")
+      .select("id")
+      .eq("directeur", name)
+      .maybeSingle();
+
+    if (error) throw error;
+    res.json({ exists: !!data });
+  } catch (err) {
+    console.error("❌ Erreur /director-exists:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+/** GET /check-classe?ecole_id=...&classe=... : vérifie si une classe est déjà prise */
+router.get("/check-classe", async (req, res) => {
+  try {
+    const { ecole_id, classe } = req.query;
+    if (!ecole_id || !classe) {
+      return res.status(400).json({ error: "ecole_id et classe requis" });
+    }
+
+    const { data, error } = await supabaseService
+      .from("utilisateurs")
+      .select("id")
+      .eq("ecole_id", ecole_id)
+      .eq("classe", classe)
+      .eq("role", "enseignant")
+      .maybeSingle();
+
+    if (error) throw error;
+    res.json({ disponible: !data }); // disponible = true si aucun enseignant trouvé
+  } catch (err) {
+    console.error("❌ Erreur /check-classe:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+/** POST /ecoles : créer une nouvelle école */
+router.post("/ecoles", async (req, res) => {
+  try {
+    const {
+      nom,
+      drena,
+      iepp,
+      secteur,
+      directeur,
+      annee_scolaire,
+      code_ecole,
+      date_creation,
+    } = req.body;
+
+    if (!nom || !drena || !iepp) {
+      return res.status(400).json({ error: "nom, drena, iepp requis" });
+    }
+
+    const { data, error } = await supabaseService
+      .from("ecoles")
+      .insert({
+        nom,
+        drena,
+        iepp,
+        secteur,
+        directeur,
+        annee_scolaire,
+        code_ecole,
+        date_creation,
+      })
+      .select("id, uuid")
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (err) {
+    console.error("❌ Erreur création école:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+/** POST /users : créer un nouvel utilisateur (directeur ou enseignant) */
+router.post("/users", async (req, res) => {
+  try {
+    const {
+      ecole_id,
+      nom,
+      prenoms,
+      sexe,
+      classe,
+      login,
+      mot_de_passe,
+      role,
+    } = req.body;
+
+    if (!ecole_id || !nom || !login || !mot_de_passe || !role) {
+      return res.status(400).json({ error: "Champs requis manquants" });
+    }
+
+    // Vérifier si le login existe déjà
+    const { data: existing } = await supabaseService
+      .from("utilisateurs")
+      .select("id")
+      .eq("login", login.toLowerCase())
+      .maybeSingle();
+
+    if (existing) {
+      return res.status(409).json({ error: "Login déjà utilisé" });
+    }
+
+    // Hachage du mot de passe
+    const saltRounds = 10;
+    const password_hash = await bcrypt.hash(mot_de_passe, saltRounds);
+
+    const { data, error } = await supabaseService
+      .from("utilisateurs")
+      .insert({
+        ecole_id,
+        nom,
+        prenoms,
+        sexe,
+        classe: role === "enseignant" ? classe : null,
+        login: login.toLowerCase(),
+        password_hash,
+        role,
+        is_active: true,
+      })
+      .select("id, uuid")
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (err) {
+    console.error("❌ Erreur création utilisateur:", err);
+    res.status(500).json({ error: "Erreur interne" });
   }
 });
 
