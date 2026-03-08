@@ -290,7 +290,12 @@ router.get("/drenas", async (req, res) => {
 
     if (error) throw error;
 
-    const drenas = [...new Set(data.map(item => item.drena))];
+    // Nettoyage : trim et suppression des doublons
+    const drenas = data
+      .map(item => item.drena.trim())
+      .filter(Boolean)
+      .filter((v, i, a) => a.indexOf(v) === i);
+
     res.json(drenas);
   } catch (err) {
     console.error("❌ Erreur /drenas:", err);
@@ -313,7 +318,11 @@ router.get("/iepps", async (req, res) => {
 
     if (error) throw error;
 
-    const iepps = [...new Set(data.map(item => item.iepp))];
+    const iepps = data
+      .map(item => item.iepp.trim())
+      .filter(Boolean)
+      .filter((v, i, a) => a.indexOf(v) === i);
+
     res.json(iepps);
   } catch (err) {
     console.error("❌ Erreur /iepps:", err);
@@ -381,7 +390,8 @@ router.get("/check-classe", async (req, res) => {
       .maybeSingle();
 
     if (error) throw error;
-    res.json({ disponible: !data }); // disponible = true si aucun enseignant trouvé
+    // disponible = true si aucun enseignant trouvé
+    res.json({ disponible: !data });
   } catch (err) {
     console.error("❌ Erreur /check-classe:", err);
     res.status(500).json({ error: "Erreur interne" });
