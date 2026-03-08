@@ -486,4 +486,188 @@ router.post("/users", async (req, res) => {
   }
 });
 
+/* =========================================================
+   SYNCHRONISATION UTILISATEUR POST-CONNEXION
+   ========================================================= */
+router.post("/sync-user", async (req, res) => {
+  try {
+    const { login, password, nom, prenoms, role, classe, ecole } = req.body;
+
+    if (!login || !password || !nom || !role || !ecole) {
+      return res.status(400).json({ error: "Champs requis manquants" });
+    }
+
+    const normalizedLogin = login.toLowerCase();
+
+    // 1. Vérifier si l'utilisateur existe déjà
+    const { data: existingUser, error: userError } = await supabaseService
+      .from("utilisateurs")
+      .select("id, password_hash")
+      .eq("login", normalizedLogin)
+      .maybeSingle();
+
+    if (userError) throw userError;
+
+    // 2. Si l'utilisateur existe, vérifier le mot de passe et retourner les tokens
+    if (existingUser) {
+      const isPasswordValid = await bcrypt.compare(password, existingUser.password_hash);
+      if (!isPasswordValid) {
+        return res.status(401).json({ error: "Mot de passe incorrect" });
+      }
+
+      const { data: user, error: fetchError } = await supabaseService
+        .from("utilisateurs")
+        .select(`
+          id,
+          uuid,
+          nom,
+          prenoms,
+          login,
+          role,
+          classe,
+          ecole_id,
+          is_active,
+          created_at,
+          ecoles (
+            nom,
+            drena,
+            iepp,
+            directeur,
+            annee_scolaire
+          )
+        `)
+        .eq("id", existingUser.id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const accessToken = generateAccessToken(user);
+      const refreshToken = generateRefreshToken(user);
+
+      return res.json({
+        success: true,
+        accessToken,
+        refreshToken,
+        user: {
+          id: user.id,
+          uuid: user.uuid,
+          nom: user.nom,
+          prenoms: user.prenoms,
+          login: user.login,
+          role: user.role,
+          classe: user.classe || "",
+          annee_scolaire: user.ecoles?.annee_scolaire || "",
+          ecole_id: user.ecole_id,
+          ecole_nom: user.ecoles?.nom || "",
+          drena: user.ecoles?.drena || "",
+          iepp: user.ecoles?.iepp || "",
+          directeur: user.ecoles?.directeur || "",
+        },
+      });
+    }
+
+    // 3. L'utilisateur n'existe pas → créer l'école et l'utilisateur
+
+    let ecoleId = null;
+    if (ecole.uuid) {
+      const { data: existingEcole } = await supabaseService
+        .from("ecoles")
+        .select("id")
+        .eq("uuid", ecole.uuid)
+        .maybeSingle();
+
+      if (existingEcole) {
+        ecoleId = existingEcole.id;
+      }
+    }
+
+    if (!ecoleId) {
+      const { data: newEcole, error: ecoleError } = await supabaseService
+        .from("ecoles")
+        .insert({
+          uuid: ecole.uuid || crypto.randomUUID(),
+          nom: ecole.nom,
+          drena: ecole.drena,
+          iepp: ecole.iepp,
+          secteur: ecole.secteur || null,
+          directeur: ecole.directeur || null,
+          annee_scolaire: ecole.annee_scolaire || null,
+          code_ecole: ecole.code_ecole || null,
+          date_creation: ecole.date_creation || null,
+        })
+        .select("id")
+        .single();
+
+      if (ecoleError) throw ecoleError;
+      ecoleId = newEcole.id;
+    }
+
+    const saltRounds = 10;
+    const password_hash = await bcrypt.hash(password, saltRounds);
+
+    const { data: newUser, error: createError } = await supabaseService
+      .from("utilisateurs")
+      .insert({
+        ecole_id: ecoleId,
+        nom,
+        prenoms: prenoms || null,
+        sexe: null,
+        classe: role === "enseignant" ? classe : null,
+        login: normalizedLogin,
+        password_hash,
+        role,
+        is_active: true,
+      })
+      .select(`
+        id,
+        uuid,
+        nom,
+        prenoms,
+        login,
+        role,
+        classe,
+        ecole_id,
+        is_active,
+        created_at,
+        ecoles (
+          nom,
+          drena,
+          iepp,
+          directeur,
+          annee_scolaire
+        )
+      `)
+      .single();
+
+    if (createError) throw createError;
+
+    const accessToken = generateAccessToken(newUser);
+    const refreshToken = generateRefreshToken(newUser);
+
+    res.json({
+      success: true,
+      accessToken,
+      refreshToken,
+      user: {
+        id: newUser.id,
+        uuid: newUser.uuid,
+        nom: newUser.nom,
+        prenoms: newUser.prenoms,
+        login: newUser.login,
+        role: newUser.role,
+        classe: newUser.classe || "",
+        annee_scolaire: newUser.ecoles?.annee_scolaire || "",
+        ecole_id: newUser.ecole_id,
+        ecole_nom: newUser.ecoles?.nom || "",
+        drena: newUser.ecoles?.drena || "",
+        iepp: newUser.ecoles?.iepp || "",
+        directeur: newUser.ecoles?.directeur || "",
+      },
+    });
+  } catch (err) {
+    console.error("❌ Erreur /sync-user:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
 export default router;
