@@ -12,9 +12,12 @@ const router = express.Router();
  */
 router.get("/full", requireAuth, async (req, res) => {
   try {
-    // req.authUser est défini par le middleware requireAuth
-    // On suppose qu'il contient l'id de l'utilisateur (de la table utilisateurs)
-    const userId = req.authUser.id;
+    // Vérifier où le middleware a stocké l'utilisateur (souvent req.user)
+    const userId = req.user?.id || req.authUser?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Utilisateur non identifié" });
+    }
 
     // Récupérer l'école de l'utilisateur
     const { data: user, error: userError } = await supabaseService
@@ -62,7 +65,6 @@ router.get("/full", requireAuth, async (req, res) => {
 
       if (error) {
         console.error(`❌ Erreur récupération table ${table}:`, error);
-        // On continue pour les autres tables, mais on met un tableau vide
         results[table] = [];
       } else {
         results[table] = data || [];
