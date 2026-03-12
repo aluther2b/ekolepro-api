@@ -12,9 +12,7 @@ const router = express.Router();
  */
 router.get("/full", requireAuth, async (req, res) => {
   try {
-    // Vérifier où le middleware a stocké l'utilisateur (souvent req.user)
     const userId = req.user?.id || req.authUser?.id;
-
     if (!userId) {
       return res.status(401).json({ error: "Utilisateur non identifié" });
     }
@@ -37,39 +35,77 @@ router.get("/full", requireAuth, async (req, res) => {
 
     const ecoleId = user.ecole_id;
 
-    // Liste des tables à exporter (doit correspondre à celles attendues par le client)
-    const tables = [
-      "ecoles",
-      "utilisateurs",
-      "eleves",
-      "notes",
-      "presences",
-      "coeffs",
-      "licences",
-    ];
+    // ---- École ----
+    const { data: ecoles } = await supabaseService
+      .from("ecoles")
+      .select("*")
+      .eq("id", ecoleId);
+    const ecolesData = ecoles || [];
 
-    const results = {};
+    // ---- Utilisateurs ----
+    const { data: utilisateurs } = await supabaseService
+      .from("utilisateurs")
+      .select("*")
+      .eq("ecole_id", ecoleId);
+    const utilisateursData = utilisateurs || [];
 
-    // Pour chaque table, récupérer les lignes correspondant à l'école
-    for (const table of tables) {
-      let query = supabaseService.from(table).select("*");
+    // ---- Élèves ----
+    const { data: eleves } = await supabaseService
+      .from("eleves")
+      .select("*")
+      .eq("ecole_id", ecoleId);
+    const elevesData = eleves || [];
+    const eleveIds = elevesData.map(e => e.id);
 
-      // La table 'ecoles' n'a pas de colonne ecole_id, on filtre par id
-      if (table === "ecoles") {
-        query = query.eq("id", ecoleId);
-      } else {
-        query = query.eq("ecole_id", ecoleId);
-      }
+    // ---- Notes (avec école_id ajouté) ----
+    let notesData = [];
+    if (eleveIds.length > 0) {
+      const { data: notes } = await supabaseService
+        .from("notes")
+        .select("*")
+        .in("eleve_id", eleveIds);
+      notesData = (notes || []).map(n => ({ ...n, ecole_id: ecoleId }));
+    }
 
-      const { data, error } = await query;
+    // ---- Présences (avec école_id ajouté) ----
+    let presencesData = [];
+    if (eleveIds.length > 0) {
+      const { data: presences } = await supabaseService
+        .from("presences")
+        .select("*")
+        .in("eleve_id", eleveIds);
+      presencesData = (presences || []).map(p => ({ ...p, ecole_id: ecoleId }));
+    }
 
-      if (error) {
-        console.error(`❌ Erreur récupération table ${table}:`, error);
-        results[table] = [];
-      } else {
-        results[table] = data || [];
+    // ---- Coefficients (avec école_id ajouté) ----
+    let coeffsData = [];
+    if (elevesData.length > 0) {
+      const classes = [...new Set(elevesData.map(e => e.classe))];
+      if (classes.length > 0) {
+        const { data: coeffs } = await supabaseService
+          .from("coeffs")
+          .select("*")
+          .in("classe", classes);
+        coeffsData = (coeffs || []).map(c => ({ ...c, ecole_id: ecoleId }));
       }
     }
+
+    // ---- Licences ----
+    const { data: licences } = await supabaseService
+      .from("licences")
+      .select("*")
+      .eq("ecole_id", ecoleId);
+    const licencesData = licences || [];
+
+    const results = {
+      ecoles: ecolesData,
+      utilisateurs: utilisateursData,
+      eleves: elevesData,
+      notes: notesData,
+      presences: presencesData,
+      coeffs: coeffsData,
+      licences: licencesData,
+    };
 
     return res.json(results);
   } catch (err) {
