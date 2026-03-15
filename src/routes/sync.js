@@ -1,3 +1,4 @@
+// src/routes/sync.js
 import express from "express";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { applySyncItem } from "../services/syncService.js";

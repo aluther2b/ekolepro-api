@@ -8,48 +8,6 @@ import { withScope } from "../../middlewares/scope.middleware.js";
 const router = express.Router();
 
 /* =======================================================
-   📱 HISTORIQUE D’UN DEVICE
-   GET /api/admin/history/devices/:deviceId/history
-======================================================= */
-router.get(
-  "/devices/:deviceId/history",
-  requireAuth,
-  requireAdmin,
-  withScope(),
-  async (req, res) => {
-    try {
-      const { deviceId } = req.params;
-
-      const { data, error } = await supabaseService
-        .from("audit_logs")
-        .select(`
-          id,
-          action,
-          user_id,
-          user_role,
-          entity_type,
-          entity_id,
-          metadata,
-          created_at
-        `)
-        .eq("entity_type", "device")
-        .eq("entity_id", deviceId)
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("❌ Device history error:", error);
-        return res.status(500).json({ error: "server_error" });
-      }
-
-      res.json(data || []);
-    } catch (err) {
-      console.error("❌ Device history exception:", err);
-      res.status(500).json({ error: "server_error" });
-    }
-  }
-);
-
-/* =======================================================
    🏫 HISTORIQUE D’UNE ÉCOLE
    GET /api/admin/history/ecoles/:id/history
 ======================================================= */
@@ -76,11 +34,9 @@ router.get(
 
       /* 2️⃣ Vérification scope */
       if (
-  (scope.level === "drena" &&
-    school.drena !== scope.drena_id) ||
-  (scope.level === "iepp" &&
-    school.iepp !== scope.iepp_id)
-) {
+        (scope.level === "drena" && school.drena !== scope.drena_id) ||
+        (scope.level === "iepp" && school.iepp !== scope.iepp_id)
+      ) {
         return res.status(403).json({ error: "forbidden" });
       }
 
@@ -143,10 +99,7 @@ router.get(
 
       /* 6️⃣ Fusion + tri */
       const allLogs = [...(schoolLogs || []), ...deviceLogs]
-        .sort(
-          (a, b) =>
-            new Date(b.created_at) - new Date(a.created_at)
-        );
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
       res.json(allLogs);
     } catch (err) {
