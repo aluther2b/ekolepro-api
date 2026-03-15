@@ -35,7 +35,7 @@ router.put("/:id", requireAuth, requireAdmin, async (req, res) => {
 
     const { error: updateError } = await supabaseService
       .from("licences")
-      .update({ statut, updated_at: new Date() })
+      .update({ statut, updated_at: new Date().toISOString() })
       .eq("id", licenceId);
 
     if (updateError) {
