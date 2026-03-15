@@ -26,6 +26,8 @@ import adminAuditRoutes from "./routes/admin/audit.routes.js";
 import adminHistoryRoutes from "./routes/admin/history.routes.js";
 import filtersRoutes from "./routes/filters.routes.js";
 import adminStatsRoutes from "./routes/admin/stats.routes.js";
+import adminStats2Routes from "./routes/admin/stats2.routes.js";
+import adminLicencesRoutes from "./routes/admin/licences.routes.js";
 
 import { requireAuth } from "./middlewares/auth.middleware.js";
 import { requireAdmin } from "./middlewares/requireAdmin.js";
@@ -72,6 +74,8 @@ app.use("/api/admin/audit", requireAuth, requireAdmin, adminAuditRoutes);
 app.use("/api/admin/history", requireAuth, requireAdmin, adminHistoryRoutes);
 app.use("/api/admin/filters", requireAuth, requireAdmin, filtersRoutes);
 app.use("/api/admin/stats", requireAuth, requireAdmin, adminStatsRoutes);
+app.use("/api/admin/stats2", requireAuth, requireAdmin, adminStats2Routes);
+app.use("/api/admin/licences", requireAuth, requireAdmin, adminLicencesRoutes);
 
 /* ================= 404 HANDLER ================= */
 app.use((req, res) => {
