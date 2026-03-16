@@ -38,7 +38,7 @@ router.post("/push", requireAuth, async (req, res) => {
 
   const results = [];
 
-  // 🔥 Tables qui possèdent réellement ecole_id
+  // Tables qui possèdent réellement ecole_id
   const tablesWithEcoleId = [
     "eleves",
     "utilisateurs",
@@ -60,6 +60,8 @@ router.post("/push", requireAuth, async (req, res) => {
       message: null,
     };
 
+    console.log(`\n🔄 Traitement item #${item?.queue_id} (table: ${item?.table_name})`);
+
     try {
       /* ================= VALIDATION ================= */
       if (
@@ -69,7 +71,7 @@ router.post("/push", requireAuth, async (req, res) => {
         !item.action ||
         !item.payload?.uuid
       ) {
-        throw new Error("Item sync invalide");
+        throw new Error("Item sync invalide (uuid manquant)");
       }
 
       /* ================= SÉCURITÉ ECOLE ================= */
@@ -83,10 +85,13 @@ router.post("/push", requireAuth, async (req, res) => {
       /* ================= INJECTION ECOLE_ID ================= */
       if (tablesWithEcoleId.includes(item.table_name)) {
         item.payload.ecole_id = req.ecoleId;
+        console.log(`   → ecole_id injecté: ${req.ecoleId}`);
       }
 
       /* ================= APPLICATION MÉTIER ================= */
+      console.log(`   → Exécution de applySyncItem pour ${item.table_name}`);
       await applySyncItem(item);
+      console.log(`   ✅ Succès`);
 
       results.push({
         queue_id: item.queue_id,
@@ -99,7 +104,7 @@ router.post("/push", requireAuth, async (req, res) => {
       });
 
     } catch (err) {
-      console.error("❌ SYNC ITEM ERROR:", err.message);
+      console.error(`   ❌ Erreur:`, err.message);
 
       results.push({
         queue_id: item?.queue_id ?? null,
@@ -115,8 +120,9 @@ router.post("/push", requireAuth, async (req, res) => {
     }
   }
 
-  console.log("✅ [SYNC] Batch terminé :", results.length);
-  console.log("===================================");
+  console.log("\n✅ [SYNC] Batch terminé :", results.length);
+  console.log("📊 Résultats:", results);
+  console.log("===================================\n");
 
   return res.json({
     success: true,

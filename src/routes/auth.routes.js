@@ -281,96 +281,108 @@ router.get("/me", async (req, res) => {
 
 /** GET /drenas : liste distincte des DRENA */
 router.get("/drenas", async (req, res) => {
-  try {
-    const { data, error } = await supabaseService
-      .from("ecoles")
-      .select("drena")
-      .not("drena", "is", null)
-      .order("drena");
+try {
+const { data, error } = await supabaseService
+.from("ecoles")
+.select("drena")
+.not("drena", "is", null)
+.order("drena");
 
-    if (error) throw error;
+if (error) throw error;
 
-    // Nettoyage : trim et suppression des doublons
-    const drenas = data
-      .map(item => item.drena.trim())
+const drenas = [
+  ...new Set(
+    data
+      .map(item => item.drena?.trim())
       .filter(Boolean)
-      .filter((v, i, a) => a.indexOf(v) === i);
+  ),
+];
 
-    res.json(drenas);
-  } catch (err) {
-    console.error("❌ Erreur /drenas:", err);
-    res.status(500).json({ error: "Erreur interne" });
-  }
+res.json(drenas);
+
+} catch (err) {
+console.error("❌ Erreur /drenas:", err);
+res.status(500).json({ error: "Erreur interne" });
+}
 });
 
 /** GET /iepps?drena=... : liste distincte des IEPP pour une DRENA */
 router.get("/iepps", async (req, res) => {
-  try {
-    const { drena } = req.query;
-    if (!drena) return res.status(400).json({ error: "drena requis" });
+try {
+const { drena } = req.query;
+if (!drena)
+return res.status(400).json({ error: "drena requis" });
 
-    const { data, error } = await supabaseService
-      .from("ecoles")
-      .select("iepp")
-      .eq("drena", drena)
-      .not("iepp", "is", null)
-      .order("iepp");
+const { data, error } = await supabaseService
+  .from("ecoles")
+  .select("iepp")
+  .ilike("drena", drena.trim())
+  .not("iepp", "is", null)
+  .order("iepp");
 
-    if (error) throw error;
+if (error) throw error;
 
-    const iepps = data
-      .map(item => item.iepp.trim())
+const iepps = [
+  ...new Set(
+    data
+      .map(item => item.iepp?.trim())
       .filter(Boolean)
-      .filter((v, i, a) => a.indexOf(v) === i);
+  ),
+];
 
-    res.json(iepps);
-  } catch (err) {
-    console.error("❌ Erreur /iepps:", err);
-    res.status(500).json({ error: "Erreur interne" });
-  }
+res.json(iepps);
+
+} catch (err) {
+console.error("❌ Erreur /iepps:", err);
+res.status(500).json({ error: "Erreur interne" });
+}
 });
 
 /** GET /ecoles?drena=...&iepp=... : écoles filtrées */
 router.get("/ecoles", async (req, res) => {
-  try {
-    const { drena, iepp } = req.query;
-    if (!drena || !iepp) {
-      return res.status(400).json({ error: "drena et iepp requis" });
-    }
+try {
+const { drena, iepp } = req.query;
 
-    const { data, error } = await supabaseService
-      .from("ecoles")
-      .select("id, nom")
-      .eq("drena", drena)
-      .eq("iepp", iepp)
-      .order("nom");
+if (!drena || !iepp)
+  return res.status(400).json({ error: "drena et iepp requis" });
 
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    console.error("❌ Erreur /ecoles:", err);
-    res.status(500).json({ error: "Erreur interne" });
-  }
+const { data, error } = await supabaseService
+  .from("ecoles")
+  .select("id, nom")
+  .ilike("drena", drena.trim())
+  .ilike("iepp", iepp.trim())
+  .order("nom");
+
+if (error) throw error;
+
+res.json(data);
+
+} catch (err) {
+console.error("❌ Erreur /ecoles:", err);
+res.status(500).json({ error: "Erreur interne" });
+}
 });
 
 /** GET /director-exists?name=... : vérifie si un directeur existe déjà */
 router.get("/director-exists", async (req, res) => {
-  try {
-    const { name } = req.query;
-    if (!name) return res.status(400).json({ error: "name requis" });
+try {
+const { name } = req.query;
 
-    const { data, error } = await supabaseService
-      .from("ecoles")
-      .select("id")
-      .eq("directeur", name)
-      .maybeSingle();
+if (!name)
+  return res.status(400).json({ error: "name requis" });
 
-    if (error) throw error;
-    res.json({ exists: !!data });
-  } catch (err) {
-    console.error("❌ Erreur /director-exists:", err);
-    res.status(500).json({ error: "Erreur interne" });
-  }
+const { data } = await supabaseService
+  .from("ecoles")
+  .select("id")
+  .ilike("directeur", name.trim())
+  .maybeSingle();
+
+res.json({ exists: !!data });
+
+} catch (err) {
+console.error("❌ Erreur /director-exists:", err);
+res.status(500).json({ error: "Erreur interne" });
+}
 });
 
 /** GET /check-classe?ecole_id=...&classe=... : vérifie si une classe est déjà prise */
