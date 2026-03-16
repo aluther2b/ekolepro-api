@@ -2,6 +2,11 @@
 
 import { supabaseService } from "../config/supabase.js";
 
+/**
+ * Applique une opération de synchronisation (upsert/delete) sur une table Supabase
+ * @param {Object} item - élément de la file d'attente : { table_name, action, payload }
+ * @returns {Promise<boolean>}
+ */
 export async function applySyncItem(item) {
   if (!item) {
     throw new Error("Item sync manquant");
@@ -21,47 +26,57 @@ export async function applySyncItem(item) {
     throw new Error(`Action inconnue: ${action}`);
   }
 
-  // 🔥 Supprimer id local SQLite
+  // Supprimer l'ID local SQLite (auto-incrémenté) pour ne pas interférer
   delete payload.id;
 
-  // 🔥 NORMALISATION IMPORTANTE
-  // Convertir "" en null (évite erreur type date)
+  // Convertir les chaînes vides en null (évite les erreurs de type sur les dates)
   Object.keys(payload).forEach((key) => {
     if (payload[key] === "") {
       payload[key] = null;
     }
   });
 
+  // Gestion des dates de mise à jour
   const now = new Date().toISOString();
   payload.updated_at = now;
-  payload.created_at ??= now;
-
-  /* ================================
-     UPSERT
-  ================================= */
-  if (action === "upsert") {
-    const { error } = await supabaseService
-      .from(table_name)
-      .upsert(payload, { onConflict: "uuid" });
-
-    if (error) {
-      throw new Error(error.message);
-    }
+  if (!payload.created_at) {
+    payload.created_at = now;
   }
 
-  /* ================================
-     DELETE
-  ================================= */
-  if (action === "delete") {
-    const { error } = await supabaseService
-      .from(table_name)
-      .delete()
-      .eq("uuid", payload.uuid);
+  console.log(`🔄 [syncService] ${action} sur ${table_name} (uuid: ${payload.uuid})`);
 
-    if (error) {
-      throw new Error(error.message);
+  try {
+    if (action === "upsert") {
+      // Tentative d'upsert basé sur la colonne 'uuid'
+      const { error } = await supabaseService
+        .from(table_name)
+        .upsert(payload, { onConflict: "uuid" });
+
+      if (error) {
+        console.error(`❌ Erreur upsert sur ${table_name}:`, error);
+        throw new Error(error.message);
+      }
+
+      console.log(`✅ upsert réussi sur ${table_name} (uuid: ${payload.uuid})`);
     }
-  }
 
-  return true;
+    if (action === "delete") {
+      const { error } = await supabaseService
+        .from(table_name)
+        .delete()
+        .eq("uuid", payload.uuid);
+
+      if (error) {
+        console.error(`❌ Erreur delete sur ${table_name}:`, error);
+        throw new Error(error.message);
+      }
+
+      console.log(`✅ delete réussi sur ${table_name} (uuid: ${payload.uuid})`);
+    }
+
+    return true;
+  } catch (err) {
+    // On relance l'erreur pour qu'elle soit capturée dans sync.js
+    throw err;
+  }
 }
