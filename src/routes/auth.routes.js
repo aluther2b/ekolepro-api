@@ -20,7 +20,7 @@ const REFRESH_EXPIRES_IN = "30d";
 function generateAccessToken(user) {
   return jwt.sign(
     {
-      id: user.id,
+      uuid: user.uuid,
       login: user.login,
       role: user.role,
       ecole_id: user.ecole_id,
@@ -204,7 +204,7 @@ router.post("/refresh", async (req, res) => {
     const { data: user, error } = await supabaseService
       .from("utilisateurs")
       .select("*")
-      .eq("id", payload.id)
+      .eq("uuid", payload.uuid)
       .maybeSingle();
 
     if (error || !user)
@@ -515,6 +515,12 @@ router.post("/sync-user", async (req, res) => {
   try {
     const { login, password, nom, prenoms, role, classe, ecole } = req.body;
 
+    console.log("📥 [sync-user] Requête reçue:", {
+      login,
+      passwordLength: password?.length,
+      ecole_uuid: ecole?.uuid,
+    });
+
     if (!login || !password || !nom || !role || !ecole) {
       return res.status(400).json({ error: "Champs requis manquants" });
     }
@@ -531,8 +537,9 @@ router.post("/sync-user", async (req, res) => {
     if (userError) throw userError;
 
     // 2. Si l'utilisateur existe, vérifier le mot de passe et retourner les tokens
-    if (existingUser) {
+       if (existingUser) {
       const isPasswordValid = await bcrypt.compare(password, existingUser.password_hash);
+      console.log(`🔐 [sync-user] Vérification mot de passe pour ${login}: ${isPasswordValid ? "OK" : "ÉCHEC"}`);
       if (!isPasswordValid) {
         return res.status(401).json({ error: "Mot de passe incorrect" });
       }
