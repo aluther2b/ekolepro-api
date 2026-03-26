@@ -317,7 +317,7 @@ return res.status(400).json({ error: "drena requis" });
 const { data, error } = await supabaseService
   .from("ecoles")
   .select("iepp")
-  .ilike("drena", drena.trim())
+  .ilike("drena", `%${drena.trim()}%`)
   .not("iepp", "is", null)
   .order("iepp");
 
@@ -341,27 +341,26 @@ res.status(500).json({ error: "Erreur interne" });
 
 /** GET /ecoles?drena=...&iepp=... : écoles filtrées */
 router.get("/ecoles", async (req, res) => {
-try {
-const { drena, iepp } = req.query;
+  try {
+    const { drena, iepp } = req.query;
 
-if (!drena || !iepp)
-  return res.status(400).json({ error: "drena et iepp requis" });
+    if (!drena || !iepp)
+      return res.status(400).json({ error: "drena et iepp requis" });
 
-const { data, error } = await supabaseService
-  .from("ecoles")
-  .select("id, nom")
-  .ilike("drena", drena.trim())
-  .ilike("iepp", iepp.trim())
-  .order("nom");
+    const { data, error } = await supabaseService
+      .from("ecoles")
+      .select("id, nom")
+      .ilike("drena", `%${drena.trim()}%`) // ✅ CORRECTION
+      .ilike("iepp", `%${iepp.trim()}%`)   // ✅ CORRECTION
+      .order("nom");
 
-if (error) throw error;
+    if (error) throw error;
 
-res.json(data);
-
-} catch (err) {
-console.error("❌ Erreur /ecoles:", err);
-res.status(500).json({ error: "Erreur interne" });
-}
+    res.json(data);
+  } catch (err) {
+    console.error("❌ Erreur /ecoles:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
 });
 
 /** GET /director-exists?name=... : vérifie si un directeur existe déjà */
