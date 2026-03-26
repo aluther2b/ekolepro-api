@@ -20,6 +20,7 @@ const REFRESH_EXPIRES_IN = "30d";
 function generateAccessToken(user) {
   return jwt.sign(
     {
+      id: user.id,              // ✅ AJOUT CRITIQUE
       uuid: user.uuid,
       login: user.login,
       role: user.role,
