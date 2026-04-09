@@ -1,9 +1,6 @@
-// src/services/devices.service.js 
+// src/services/devices.service.js
 import { supabaseService } from "../config/supabase.js";
 
-/* =====================================================
-   RÉCUPÉRER DEVICE
-===================================================== */
 export async function getDevice(device_id) {
   try {
     const { data, error } = await supabaseService
@@ -24,17 +21,13 @@ export async function getDevice(device_id) {
   }
 }
 
-/* =====================================================
-   COMPTER DEVICES ACTIFS (AUTORISÉS)
-===================================================== */
 export async function countDevices(ecole_id) {
   try {
-    // ✅ CORRECTION : utiliser 'statut' = 'autorise' (pas 'blocked')
     const { count, error } = await supabaseService
       .from("devices")
       .select("*", { count: "exact", head: true })
       .eq("ecole_id", ecole_id)
-      .eq("statut", "autorise");  // ✅ CORRIGÉ
+      .eq("statut", "autorise");
 
     if (error) {
       console.error("❌ Erreur countDevices:", error);
@@ -48,9 +41,6 @@ export async function countDevices(ecole_id) {
   }
 }
 
-/* =====================================================
-   ENREGISTRER DEVICE
-===================================================== */
 export async function registerDevice(ecole_id, utilisateur_id, device_id) {
   try {
     // Vérifier si le device existe déjà
@@ -58,7 +48,13 @@ export async function registerDevice(ecole_id, utilisateur_id, device_id) {
 
     if (existingDevice) {
       console.log("📱 Device déjà existant, mise à jour last_seen");
-      await touchDevice(device_id);
+      await supabaseService
+        .from("devices")
+        .update({
+          last_seen: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("device_id", device_id);
       return { data: existingDevice, error: null };
     }
 
@@ -82,14 +78,13 @@ export async function registerDevice(ecole_id, utilisateur_id, device_id) {
       return { data: null, error: "device_limit_reached" };
     }
 
-    // ✅ CORRECTION : utiliser 'statut' = 'autorise' (pas 'blocked')
     const { data, error } = await supabaseService
       .from("devices")
       .insert({
         ecole_id,
         utilisateur_id,
         device_id,
-        statut: "autorise",  // ✅ CORRIGÉ
+        statut: "autorise",
         registered_at: new Date().toISOString(),
         last_seen: new Date().toISOString(),
         created_at: new Date().toISOString(),
@@ -119,29 +114,5 @@ export async function registerDevice(ecole_id, utilisateur_id, device_id) {
   } catch (err) {
     console.error("❌ Exception registerDevice:", err);
     return { data: null, error: err };
-  }
-}
-
-/* =====================================================
-   TOUCH DEVICE (mise à jour last_seen)
-===================================================== */
-export async function touchDevice(device_id) {
-  try {
-    const { error } = await supabaseService
-      .from("devices")
-      .update({
-        last_seen: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("device_id", device_id);
-
-    if (error) {
-      console.error("❌ Erreur touchDevice:", error);
-    }
-
-    return { error };
-  } catch (err) {
-    console.error("❌ Exception touchDevice:", err);
-    return { error: err };
   }
 }

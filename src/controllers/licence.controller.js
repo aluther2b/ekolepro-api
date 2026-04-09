@@ -42,7 +42,11 @@ export async function checkLicence(req, res) {
       return res.json({ statut: "expired" });
     }
 
-    console.log("📄 Licence trouvée:", { statut: licence.statut, date_fin: licence.date_fin });
+    console.log("📄 Licence trouvée:", { 
+      statut: licence.statut, 
+      date_fin: licence.date_fin,
+      cle: licence.cle 
+    });
 
     if (licence.statut === "suspended") {
       return res.json({ statut: "suspended" });
@@ -59,7 +63,11 @@ export async function checkLicence(req, res) {
           .eq("id", licence.id);
       }
       
-      return res.json({ statut: "expired", date_fin: licence.date_fin });
+      return res.json({ 
+        statut: "expired", 
+        date_fin: licence.date_fin,
+        licence_key: licence.cle  // ✅ AJOUTÉ
+      });
     }
 
     // Gestion du device
@@ -73,9 +81,11 @@ export async function checkLicence(req, res) {
     if (device) {
       console.log("📱 Device déjà enregistré:", device.device_id);
       
-      // ✅ CORRECTION : utiliser 'statut' pour vérifier si bloqué
       if (device.statut === "bloque") {
-        return res.json({ statut: "device_blocked" });
+        return res.json({ 
+          statut: "device_blocked",
+          licence_key: licence.cle  // ✅ AJOUTÉ
+        });
       }
 
       // Mettre à jour last_seen
@@ -87,7 +97,7 @@ export async function checkLicence(req, res) {
       return res.json({
         statut: "active",
         date_fin: licence.date_fin,
-        licence_key: licence.cle  // ✅ Pour la synchronisation locale
+        licence_key: licence.cle  // ✅ AJOUTÉ - CRITIQUE pour le frontend
       });
     }
 
@@ -110,7 +120,8 @@ export async function checkLicence(req, res) {
       console.warn("⚠️ Limite de devices atteinte");
       return res.json({ 
         statut: "device_blocked",
-        message: `Limite de ${maxDevices} appareils atteinte`
+        message: `Limite de ${maxDevices} appareils atteinte`,
+        licence_key: licence.cle  // ✅ AJOUTÉ
       });
     }
 
@@ -121,17 +132,21 @@ export async function checkLicence(req, res) {
       console.error("❌ Erreur registerDevice:", registerError);
       
       if (registerError === "device_limit_reached") {
-        return res.json({ statut: "device_blocked" });
+        return res.json({ 
+          statut: "device_blocked",
+          licence_key: licence.cle  // ✅ AJOUTÉ
+        });
       }
       // Ne pas bloquer l'utilisateur pour d'autres erreurs
     } else {
       console.log("✅ Nouveau device enregistré avec succès");
     }
 
+    // ✅ RETOURNER licence_key POUR LA SYNCHRONISATION LOCALE
     return res.json({
       statut: "active",
       date_fin: licence.date_fin,
-      licence_key: licence.cle  // ✅ Pour la synchronisation locale
+      licence_key: licence.cle  // ✅ CRITIQUE : le frontend attend ce champ
     });
 
   } catch (err) {
