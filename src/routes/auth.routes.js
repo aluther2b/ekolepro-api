@@ -32,9 +32,16 @@ function generateAccessToken(user) {
 }
 
 function generateRefreshToken(user) {
-  return jwt.sign({ id: user.id }, JWT_SECRET, {
-    expiresIn: REFRESH_EXPIRES_IN,
-  });
+  return jwt.sign(
+    { 
+      id: user.id,
+      uuid: user.uuid 
+    }, 
+    JWT_SECRET, 
+    {
+      expiresIn: REFRESH_EXPIRES_IN,
+    }
+  );
 }
 
 function verifyToken(token) {
@@ -58,16 +65,24 @@ router.get("/health", (req, res) => {
 
 /* ====================================
    LOGIN (avec création session)
+   ✅ CORRIGÉ : LEFT JOIN pour admin sans école
 ==================================== */
 router.post("/login", async (req, res) => {
   try {
     const { login, password, device_id } = req.body;
 
-    if (!login || !password)
+    console.log("📥 [LOGIN] Tentative de connexion:", { login, device_id });
+
+    if (!login || !password) {
+      console.log("❌ [LOGIN] login ou password manquant");
       return res.status(400).json({ error: "login_password_required" });
+    }
 
     const normalizedLogin = login.toLowerCase();
+    console.log("🔍 [LOGIN] Recherche utilisateur:", normalizedLogin);
 
+    // ✅ CORRECTION PRINCIPALE : Utilisation de !left pour faire un LEFT JOIN
+    // Cela permet de récupérer l'admin même s'il n'a pas d'ecole_id
     const { data: user, error } = await supabaseService
       .from("utilisateurs")
       .select(`
@@ -82,7 +97,7 @@ router.post("/login", async (req, res) => {
         is_active,
         created_at,
         password_hash,
-        ecoles (
+        ecoles!left (
           nom,
           drena,
           iepp,
@@ -93,15 +108,36 @@ router.post("/login", async (req, res) => {
       .eq("login", normalizedLogin)
       .maybeSingle();
 
-    if (error || !user)
-      return res.status(401).json({ error: "invalid_credentials" });
+    if (error) {
+      console.error("❌ [LOGIN] Erreur Supabase:", error);
+      return res.status(500).json({ error: "database_error" });
+    }
 
-    if (!user.is_active)
+    if (!user) {
+      console.log("❌ [LOGIN] Utilisateur non trouvé:", normalizedLogin);
+      return res.status(401).json({ error: "invalid_credentials" });
+    }
+
+    console.log("✅ [LOGIN] Utilisateur trouvé:", { 
+      id: user.id, 
+      login: user.login, 
+      role: user.role,
+      ecole_id: user.ecole_id,
+      has_ecoles: !!user.ecoles
+    });
+
+    if (!user.is_active) {
+      console.log("❌ [LOGIN] Compte désactivé");
       return res.status(403).json({ error: "account_disabled" });
+    }
 
-     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-    if (!isPasswordValid)
+    // Vérification du mot de passe
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+    console.log("🔐 [LOGIN] Vérification mot de passe:", isPasswordValid ? "OK" : "ÉCHEC");
+    
+    if (!isPasswordValid) {
       return res.status(401).json({ error: "invalid_credentials" });
+    }
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
@@ -124,40 +160,51 @@ router.post("/login", async (req, res) => {
     // Créer nouvelle session
     await supabaseService.from("sessions").insert({
       utilisateur_id: user.id,
-      ecole_id: user.ecole_id,
+      ecole_id: user.ecole_id || null,
       device_id: finalDeviceId,
       active: true,
       connected_at: new Date().toISOString(),
     });
 
+    console.log("✅ [LOGIN] Session créée pour device:", finalDeviceId);
+
     /* ===============================
        RESPONSE
     =============================== */
+    const responseUser = {
+      id: user.id,
+      uuid: user.uuid,
+      nom: user.nom || "",
+      prenoms: user.prenoms || "",
+      login: user.login,
+      role: user.role || "",
+      classe: user.classe || "",
+      // ✅ Gestion du cas où ecoles est null (admin sans école)
+      annee_scolaire: user.ecoles?.annee_scolaire || "",
+      ecole_id: user.ecole_id || 0,
+      ecole_nom: user.ecoles?.nom || "",
+      drena: user.ecoles?.drena || "",
+      iepp: user.ecoles?.iepp || "",
+      directeur: user.ecoles?.directeur || "",
+      is_active: user.is_active,
+      created_at: user.created_at,
+    };
+
+    console.log("✅ [LOGIN] Connexion réussie:", { 
+      userId: user.id, 
+      role: user.role,
+      deviceId: finalDeviceId 
+    });
+
     res.json({
       success: true,
       accessToken,
       refreshToken,
-      user: {
-        id: user.id,
-        uuid: user.uuid,
-        nom: user.nom || "",
-        prenoms: user.prenoms || "",
-        login: user.login,
-        role: user.role || "",
-        classe: user.classe || "",
-        annee_scolaire:
-          user.annee_scolaire || user.ecoles?.annee_scolaire || "",
-        ecole_id: user.ecole_id || 0,
-        ecole_nom: user.ecoles?.nom || "",
-        drena: user.ecoles?.drena || "",
-        iepp: user.ecoles?.iepp || "",
-        directeur: user.ecoles?.directeur || "",
-        is_active: user.is_active,
-        created_at: user.created_at,
-      },
+      user: responseUser,
+      device_id: finalDeviceId, // Retourner le device_id pour le client
     });
   } catch (err) {
-    console.error("❌ Login error:", err);
+    console.error("❌ [LOGIN] Erreur inattendue:", err);
     res.status(500).json({ error: "internal_error" });
   }
 });
@@ -169,8 +216,11 @@ router.post("/logout", async (req, res) => {
   try {
     const { device_id } = req.body;
 
-    if (!device_id)
+    if (!device_id) {
       return res.status(400).json({ error: "device_id_required" });
+    }
+
+    console.log("📤 [LOGOUT] Déconnexion device:", device_id);
 
     await supabaseService
       .from("sessions")
@@ -181,38 +231,72 @@ router.post("/logout", async (req, res) => {
       .eq("device_id", device_id)
       .eq("active", true);
 
+    console.log("✅ [LOGOUT] Session désactivée");
     res.json({ success: true, message: "Déconnecté" });
   } catch (err) {
-    console.error("❌ Logout error:", err);
+    console.error("❌ [LOGOUT] Erreur:", err);
     res.status(500).json({ error: "logout_failed" });
   }
 });
 
 /* ====================================
    REFRESH TOKEN
+   ✅ CORRIGÉ : Utilisation de l'ID pour la recherche
 ==================================== */
 router.post("/refresh", async (req, res) => {
   try {
     const { refresh_token } = req.body;
 
-    if (!refresh_token)
+    if (!refresh_token) {
       return res.status(400).json({ error: "refresh_token_required" });
+    }
 
     const payload = verifyToken(refresh_token);
-    if (!payload)
+    if (!payload) {
+      console.log("❌ [REFRESH] Token invalide");
       return res.status(401).json({ error: "invalid_refresh_token" });
+    }
 
+    console.log("🔄 [REFRESH] Pour utilisateur:", payload.id);
+
+    // ✅ CORRECTION : Recherche par id (qui est dans le payload)
     const { data: user, error } = await supabaseService
       .from("utilisateurs")
-      .select("*")
-      .eq("uuid", payload.uuid)
+      .select(`
+        id,
+        uuid,
+        nom,
+        prenoms,
+        login,
+        role,
+        classe,
+        ecole_id,
+        is_active,
+        created_at,
+        ecoles!left (
+          nom,
+          drena,
+          iepp,
+          directeur,
+          annee_scolaire
+        )
+      `)
+      .eq("id", payload.id)
       .maybeSingle();
 
-    if (error || !user)
+    if (error || !user) {
+      console.log("❌ [REFRESH] Utilisateur non trouvé");
       return res.status(404).json({ error: "user_not_found" });
+    }
+
+    if (!user.is_active) {
+      return res.status(403).json({ error: "account_disabled" });
+    }
 
     const accessToken = generateAccessToken(user);
     const newRefreshToken = generateRefreshToken(user);
+
+    console.log("✅ [REFRESH] Nouveaux tokens générés");
 
     res.json({
       success: true,
@@ -220,58 +304,80 @@ router.post("/refresh", async (req, res) => {
       refreshToken: newRefreshToken,
     });
   } catch (err) {
-    console.error("❌ Refresh error:", err);
+    console.error("❌ [REFRESH] Erreur:", err);
     res.status(500).json({ error: "refresh_failed" });
   }
 });
 
 /* ====================================
    GET /me
+   ✅ CORRIGÉ : LEFT JOIN pour admin
 ==================================== */
 router.get("/me", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith("Bearer "))
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({ error: "token_required" });
+    }
 
     const token = authHeader.split(" ")[1];
     const payload = verifyToken(token);
 
-    if (!payload)
+    if (!payload) {
       return res.status(401).json({ error: "invalid_token" });
+    }
 
     const { data: user, error } = await supabaseService
       .from("utilisateurs")
-      .select("*, ecoles(nom, drena, iepp, directeur, annee_scolaire)")
+      .select(`
+        id,
+        uuid,
+        nom,
+        prenoms,
+        login,
+        role,
+        classe,
+        ecole_id,
+        is_active,
+        created_at,
+        ecoles!left (
+          nom,
+          drena,
+          iepp,
+          directeur,
+          annee_scolaire
+        )
+      `)
       .eq("id", payload.id)
       .maybeSingle();
 
-    if (error || !user)
+    if (error || !user) {
       return res.status(404).json({ error: "user_not_found" });
+    }
 
     res.json({
       success: true,
       user: {
         id: user.id,
-        nom: user.nom,
-        prenoms: user.prenoms,
+        uuid: user.uuid,
+        nom: user.nom || "",
+        prenoms: user.prenoms || "",
         login: user.login,
-        role: user.role,
+        role: user.role || "",
         classe: user.classe || "",
-        annee_scolaire:
-          user.annee_scolaire || user.ecoles?.annee_scolaire || "",
-        ecole_id: user.ecole_id,
-        ecole_nom: user.ecoles?.nom || null,
-        drena: user.ecoles?.drena || null,
-        iepp: user.ecoles?.iepp || null,
-        directeur: user.ecoles?.directeur || null,
+        annee_scolaire: user.ecoles?.annee_scolaire || "",
+        ecole_id: user.ecole_id || 0,
+        ecole_nom: user.ecoles?.nom || "",
+        drena: user.ecoles?.drena || "",
+        iepp: user.ecoles?.iepp || "",
+        directeur: user.ecoles?.directeur || "",
         is_active: user.is_active,
         created_at: user.created_at,
       },
     });
   } catch (err) {
-    console.error("❌ Me error:", err);
+    console.error("❌ [ME] Erreur:", err);
     res.status(500).json({ error: "internal_error" });
   }
 });
@@ -282,61 +388,60 @@ router.get("/me", async (req, res) => {
 
 /** GET /drenas : liste distincte des DRENA */
 router.get("/drenas", async (req, res) => {
-try {
-const { data, error } = await supabaseService
-.from("ecoles")
-.select("drena")
-.not("drena", "is", null)
-.order("drena");
+  try {
+    const { data, error } = await supabaseService
+      .from("ecoles")
+      .select("drena")
+      .not("drena", "is", null)
+      .order("drena");
 
-if (error) throw error;
+    if (error) throw error;
 
-const drenas = [
-  ...new Set(
-    data
-      .map(item => item.drena?.trim())
-      .filter(Boolean)
-  ),
-];
+    const drenas = [
+      ...new Set(
+        data
+          .map(item => item.drena?.trim())
+          .filter(Boolean)
+      ),
+    ];
 
-res.json(drenas);
-
-} catch (err) {
-console.error("❌ Erreur /drenas:", err);
-res.status(500).json({ error: "Erreur interne" });
-}
+    res.json(drenas);
+  } catch (err) {
+    console.error("❌ Erreur /drenas:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
 });
 
 /** GET /iepps?drena=... : liste distincte des IEPP pour une DRENA */
 router.get("/iepps", async (req, res) => {
-try {
-const { drena } = req.query;
-if (!drena)
-return res.status(400).json({ error: "drena requis" });
+  try {
+    const { drena } = req.query;
+    if (!drena) {
+      return res.status(400).json({ error: "drena requis" });
+    }
 
-const { data, error } = await supabaseService
-  .from("ecoles")
-  .select("iepp")
-  .ilike("drena", `%${drena.trim()}%`)
-  .not("iepp", "is", null)
-  .order("iepp");
+    const { data, error } = await supabaseService
+      .from("ecoles")
+      .select("iepp")
+      .ilike("drena", `%${drena.trim()}%`)
+      .not("iepp", "is", null)
+      .order("iepp");
 
-if (error) throw error;
+    if (error) throw error;
 
-const iepps = [
-  ...new Set(
-    data
-      .map(item => item.iepp?.trim())
-      .filter(Boolean)
-  ),
-];
+    const iepps = [
+      ...new Set(
+        data
+          .map(item => item.iepp?.trim())
+          .filter(Boolean)
+      ),
+    ];
 
-res.json(iepps);
-
-} catch (err) {
-console.error("❌ Erreur /iepps:", err);
-res.status(500).json({ error: "Erreur interne" });
-}
+    res.json(iepps);
+  } catch (err) {
+    console.error("❌ Erreur /iepps:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
 });
 
 /** GET /ecoles?drena=...&iepp=... : écoles filtrées */
@@ -344,14 +449,15 @@ router.get("/ecoles", async (req, res) => {
   try {
     const { drena, iepp } = req.query;
 
-    if (!drena || !iepp)
+    if (!drena || !iepp) {
       return res.status(400).json({ error: "drena et iepp requis" });
+    }
 
     const { data, error } = await supabaseService
       .from("ecoles")
       .select("id, nom")
-      .ilike("drena", `%${drena.trim()}%`) // ✅ CORRECTION
-      .ilike("iepp", `%${iepp.trim()}%`)   // ✅ CORRECTION
+      .ilike("drena", `%${drena.trim()}%`)
+      .ilike("iepp", `%${iepp.trim()}%`)
       .order("nom");
 
     if (error) throw error;
@@ -365,24 +471,24 @@ router.get("/ecoles", async (req, res) => {
 
 /** GET /director-exists?name=... : vérifie si un directeur existe déjà */
 router.get("/director-exists", async (req, res) => {
-try {
-const { name } = req.query;
+  try {
+    const { name } = req.query;
 
-if (!name)
-  return res.status(400).json({ error: "name requis" });
+    if (!name) {
+      return res.status(400).json({ error: "name requis" });
+    }
 
-const { data } = await supabaseService
-  .from("ecoles")
-  .select("id")
-  .ilike("directeur", name.trim())
-  .maybeSingle();
+    const { data } = await supabaseService
+      .from("ecoles")
+      .select("id")
+      .ilike("directeur", name.trim())
+      .maybeSingle();
 
-res.json({ exists: !!data });
-
-} catch (err) {
-console.error("❌ Erreur /director-exists:", err);
-res.status(500).json({ error: "Erreur interne" });
-}
+    res.json({ exists: !!data });
+  } catch (err) {
+    console.error("❌ Erreur /director-exists:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
 });
 
 /** GET /check-classe?ecole_id=...&classe=... : vérifie si une classe est déjà prise */
@@ -402,6 +508,7 @@ router.get("/check-classe", async (req, res) => {
       .maybeSingle();
 
     if (error) throw error;
+    
     // disponible = true si aucun enseignant trouvé
     res.json({ disponible: !data });
   } catch (err) {
@@ -444,6 +551,7 @@ router.post("/ecoles", async (req, res) => {
       .single();
 
     if (error) throw error;
+    
     res.status(201).json(data);
   } catch (err) {
     console.error("❌ Erreur création école:", err);
@@ -501,6 +609,7 @@ router.post("/users", async (req, res) => {
       .single();
 
     if (error) throw error;
+    
     res.status(201).json(data);
   } catch (err) {
     console.error("❌ Erreur création utilisateur:", err);
@@ -510,6 +619,7 @@ router.post("/users", async (req, res) => {
 
 /* =========================================================
    SYNCHRONISATION UTILISATEUR POST-CONNEXION
+   ✅ CORRIGÉ : LEFT JOIN pour la recherche utilisateur
    ========================================================= */
 router.post("/sync-user", async (req, res) => {
   try {
@@ -528,22 +638,29 @@ router.post("/sync-user", async (req, res) => {
     const normalizedLogin = login.toLowerCase();
 
     // 1. Vérifier si l'utilisateur existe déjà
+    // ✅ CORRECTION : LEFT JOIN pour ne pas filtrer les utilisateurs sans école
     const { data: existingUser, error: userError } = await supabaseService
       .from("utilisateurs")
-      .select("id, password_hash")
+      .select(`
+        id, 
+        password_hash,
+        ecoles!left(nom, drena, iepp, directeur, annee_scolaire)
+      `)
       .eq("login", normalizedLogin)
       .maybeSingle();
 
     if (userError) throw userError;
 
     // 2. Si l'utilisateur existe, vérifier le mot de passe et retourner les tokens
-       if (existingUser) {
+    if (existingUser) {
       const isPasswordValid = await bcrypt.compare(password, existingUser.password_hash);
       console.log(`🔐 [sync-user] Vérification mot de passe pour ${login}: ${isPasswordValid ? "OK" : "ÉCHEC"}`);
+      
       if (!isPasswordValid) {
         return res.status(401).json({ error: "Mot de passe incorrect" });
       }
 
+      // ✅ CORRECTION : LEFT JOIN pour récupérer toutes les infos
       const { data: user, error: fetchError } = await supabaseService
         .from("utilisateurs")
         .select(`
@@ -557,7 +674,7 @@ router.post("/sync-user", async (req, res) => {
           ecole_id,
           is_active,
           created_at,
-          ecoles (
+          ecoles!left (
             nom,
             drena,
             iepp,
@@ -586,7 +703,7 @@ router.post("/sync-user", async (req, res) => {
           role: user.role,
           classe: user.classe || "",
           annee_scolaire: user.ecoles?.annee_scolaire || "",
-          ecole_id: user.ecole_id,
+          ecole_id: user.ecole_id || 0,
           ecole_nom: user.ecoles?.nom || "",
           drena: user.ecoles?.drena || "",
           iepp: user.ecoles?.iepp || "",
@@ -596,6 +713,7 @@ router.post("/sync-user", async (req, res) => {
     }
 
     // 3. L'utilisateur n'existe pas → créer l'école et l'utilisateur
+    console.log("📝 [sync-user] Création nouvel utilisateur");
 
     let ecoleId = null;
     if (ecole.uuid) {
@@ -658,7 +776,7 @@ router.post("/sync-user", async (req, res) => {
         ecole_id,
         is_active,
         created_at,
-        ecoles (
+        ecoles!left (
           nom,
           drena,
           iepp,
@@ -673,6 +791,8 @@ router.post("/sync-user", async (req, res) => {
     const accessToken = generateAccessToken(newUser);
     const refreshToken = generateRefreshToken(newUser);
 
+    console.log("✅ [sync-user] Utilisateur créé:", newUser.id);
+
     res.json({
       success: true,
       accessToken,
@@ -686,7 +806,7 @@ router.post("/sync-user", async (req, res) => {
         role: newUser.role,
         classe: newUser.classe || "",
         annee_scolaire: newUser.ecoles?.annee_scolaire || "",
-        ecole_id: newUser.ecole_id,
+        ecole_id: newUser.ecole_id || 0,
         ecole_nom: newUser.ecoles?.nom || "",
         drena: newUser.ecoles?.drena || "",
         iepp: newUser.ecoles?.iepp || "",
@@ -694,7 +814,7 @@ router.post("/sync-user", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Erreur /sync-user:", err);
+    console.error("❌ [sync-user] Erreur:", err);
     res.status(500).json({ error: "Erreur interne" });
   }
 });
