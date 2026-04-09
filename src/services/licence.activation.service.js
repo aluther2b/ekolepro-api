@@ -47,13 +47,11 @@ export async function activateLicenceForSchool({
 
     const currentEnd = new Date(existingLicence.date_fin);
 
-    // Si encore valide → on prolonge à partir de la date actuelle de fin
     if (currentEnd > now) {
       startDate = new Date(existingLicence.date_debut);
       endDate = new Date(currentEnd);
       endDate.setDate(endDate.getDate() + duration_days);
     } else {
-      // Si expirée → on repart d'aujourd'hui
       startDate = now;
       endDate = new Date();
       endDate.setDate(now.getDate() + duration_days);
@@ -64,6 +62,7 @@ export async function activateLicenceForSchool({
       .update({
         date_fin: endDate.toISOString().split("T")[0],
         payment_id: payment_id ?? existingLicence.payment_id,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", existingLicence.id);
 
@@ -92,22 +91,26 @@ export async function activateLicenceForSchool({
   endDate = new Date();
   endDate.setDate(now.getDate() + duration_days);
 
-  const licence_key = `LIC-${ecole_id}-${Date.now()}-${crypto
+  // ✅ CORRECTION : Utiliser 'cle' au lieu de 'licence_key'
+  const cle = `LIC-${ecole_id}-${Date.now()}-${crypto
     .randomUUID()
     .slice(0, 8)}`;
 
   const insertData = {
     ecole_id,
-    licence_key,
+    cle: cle,  // ✅ CORRECTION : nom de colonne correct
     statut: "active",
     date_debut: startDate.toISOString().split("T")[0],
     date_fin: endDate.toISOString().split("T")[0],
     created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   };
 
   if (payment_id) {
     insertData.payment_id = payment_id;
   }
+
+  console.log("📝 Données insertion licence:", insertData);
 
   const { data: newLicence, error: insertError } =
     await supabaseService
