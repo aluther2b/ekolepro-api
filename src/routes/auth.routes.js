@@ -53,7 +53,7 @@ function verifyToken(token) {
 }
 
 /* ====================================
-   HEALTH CHECK (optionnel)
+   HEALTH CHECK
 ==================================== */
 router.get("/health", (req, res) => {
   res.json({
@@ -66,6 +66,7 @@ router.get("/health", (req, res) => {
 /* ====================================
    LOGIN (avec création session)
    ✅ CORRIGÉ : LEFT JOIN pour admin sans école
+   ✅ CORRIGÉ : Pas de annee_scolaire_id dans ecoles
 ==================================== */
 router.post("/login", async (req, res) => {
   try {
@@ -81,8 +82,7 @@ router.post("/login", async (req, res) => {
     const normalizedLogin = login.toLowerCase();
     console.log("🔍 [LOGIN] Recherche utilisateur:", normalizedLogin);
 
-    // ✅ CORRECTION PRINCIPALE : Utilisation de !left pour faire un LEFT JOIN
-    // Cela permet de récupérer l'admin même s'il n'a pas d'ecole_id
+    // ✅ CORRECTION : LEFT JOIN sur ecoles (sans annee_scolaire_id)
     const { data: user, error } = await supabaseService
       .from("utilisateurs")
       .select(`
@@ -98,11 +98,15 @@ router.post("/login", async (req, res) => {
         created_at,
         password_hash,
         ecoles!left (
+          id,
+          uuid,
           nom,
           drena,
           iepp,
+          secteur,
           directeur,
-          annee_scolaire
+          code_ecole,
+          date_creation
         )
       `)
       .eq("login", normalizedLogin)
@@ -179,13 +183,17 @@ router.post("/login", async (req, res) => {
       login: user.login,
       role: user.role || "",
       classe: user.classe || "",
-      // ✅ Gestion du cas où ecoles est null (admin sans école)
-      annee_scolaire: user.ecoles?.annee_scolaire || "",
+      // annee_scolaire sera récupéré via une API séparée si nécessaire
+      annee_scolaire: "",
       ecole_id: user.ecole_id || 0,
+      ecole_uuid: user.ecoles?.uuid || "",
       ecole_nom: user.ecoles?.nom || "",
       drena: user.ecoles?.drena || "",
       iepp: user.ecoles?.iepp || "",
+      secteur: user.ecoles?.secteur || "",
       directeur: user.ecoles?.directeur || "",
+      code_ecole: user.ecoles?.code_ecole || "",
+      date_creation: user.ecoles?.date_creation || "",
       is_active: user.is_active,
       created_at: user.created_at,
     };
@@ -201,7 +209,7 @@ router.post("/login", async (req, res) => {
       accessToken,
       refreshToken,
       user: responseUser,
-      device_id: finalDeviceId, // Retourner le device_id pour le client
+      device_id: finalDeviceId,
     });
   } catch (err) {
     console.error("❌ [LOGIN] Erreur inattendue:", err);
@@ -241,7 +249,7 @@ router.post("/logout", async (req, res) => {
 
 /* ====================================
    REFRESH TOKEN
-   ✅ CORRIGÉ : Utilisation de l'ID pour la recherche
+   ✅ CORRIGÉ : Même structure que login
 ==================================== */
 router.post("/refresh", async (req, res) => {
   try {
@@ -259,7 +267,6 @@ router.post("/refresh", async (req, res) => {
 
     console.log("🔄 [REFRESH] Pour utilisateur:", payload.id);
 
-    // ✅ CORRECTION : Recherche par id (qui est dans le payload)
     const { data: user, error } = await supabaseService
       .from("utilisateurs")
       .select(`
@@ -274,11 +281,15 @@ router.post("/refresh", async (req, res) => {
         is_active,
         created_at,
         ecoles!left (
+          id,
+          uuid,
           nom,
           drena,
           iepp,
+          secteur,
           directeur,
-          annee_scolaire
+          code_ecole,
+          date_creation
         )
       `)
       .eq("id", payload.id)
@@ -311,7 +322,7 @@ router.post("/refresh", async (req, res) => {
 
 /* ====================================
    GET /me
-   ✅ CORRIGÉ : LEFT JOIN pour admin
+   ✅ CORRIGÉ : Même structure que login
 ==================================== */
 router.get("/me", async (req, res) => {
   try {
@@ -342,11 +353,15 @@ router.get("/me", async (req, res) => {
         is_active,
         created_at,
         ecoles!left (
+          id,
+          uuid,
           nom,
           drena,
           iepp,
+          secteur,
           directeur,
-          annee_scolaire
+          code_ecole,
+          date_creation
         )
       `)
       .eq("id", payload.id)
@@ -366,12 +381,16 @@ router.get("/me", async (req, res) => {
         login: user.login,
         role: user.role || "",
         classe: user.classe || "",
-        annee_scolaire: user.ecoles?.annee_scolaire || "",
+        annee_scolaire: "",
         ecole_id: user.ecole_id || 0,
+        ecole_uuid: user.ecoles?.uuid || "",
         ecole_nom: user.ecoles?.nom || "",
         drena: user.ecoles?.drena || "",
         iepp: user.ecoles?.iepp || "",
+        secteur: user.ecoles?.secteur || "",
         directeur: user.ecoles?.directeur || "",
+        code_ecole: user.ecoles?.code_ecole || "",
+        date_creation: user.ecoles?.date_creation || "",
         is_active: user.is_active,
         created_at: user.created_at,
       },
@@ -383,7 +402,34 @@ router.get("/me", async (req, res) => {
 });
 
 /* =========================================================
-   NOUVELLES ROUTES PUBLIQUES POUR L'INSCRIPTION
+   ROUTE POUR RÉCUPÉRER L'ANNÉE SCOLAIRE ACTIVE D'UNE ÉCOLE
+   ✅ NOUVEAU : Pour obtenir l'année active sans polluer ecoles
+   ========================================================= */
+router.get("/ecole/:ecoleId/annee-active", async (req, res) => {
+  try {
+    const { ecoleId } = req.params;
+    
+    const { data, error } = await supabaseService
+      .from("annees_scolaires")
+      .select("*")
+      .eq("ecole_id", ecoleId)
+      .eq("is_active", true)
+      .maybeSingle();
+      
+    if (error) throw error;
+    
+    res.json({ 
+      success: true, 
+      annee_active: data || null 
+    });
+  } catch (err) {
+    console.error("❌ Erreur récupération année active:", err);
+    res.status(500).json({ error: "Erreur interne" });
+  }
+});
+
+/* =========================================================
+   ROUTES PUBLIQUES POUR L'INSCRIPTION
    ========================================================= */
 
 /** GET /drenas : liste distincte des DRENA */
@@ -455,7 +501,7 @@ router.get("/ecoles", async (req, res) => {
 
     const { data, error } = await supabaseService
       .from("ecoles")
-      .select("id, nom")
+      .select("id, uuid, nom, drena, iepp, secteur, directeur, code_ecole")
       .ilike("drena", `%${drena.trim()}%`)
       .ilike("iepp", `%${iepp.trim()}%`)
       .order("nom");
@@ -509,7 +555,6 @@ router.get("/check-classe", async (req, res) => {
 
     if (error) throw error;
     
-    // disponible = true si aucun enseignant trouvé
     res.json({ disponible: !data });
   } catch (err) {
     console.error("❌ Erreur /check-classe:", err);
@@ -526,7 +571,6 @@ router.post("/ecoles", async (req, res) => {
       iepp,
       secteur,
       directeur,
-      annee_scolaire,
       code_ecole,
       date_creation,
     } = req.body;
@@ -535,24 +579,32 @@ router.post("/ecoles", async (req, res) => {
       return res.status(400).json({ error: "nom, drena, iepp requis" });
     }
 
+    // Générer un code école si non fourni
+    const finalCodeEcole = code_ecole || `ECO-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
     const { data, error } = await supabaseService
       .from("ecoles")
       .insert({
         nom,
         drena,
         iepp,
-        secteur,
-        directeur,
-        annee_scolaire,
-        code_ecole,
-        date_creation,
+        secteur: secteur || null,
+        directeur: directeur || null,
+        code_ecole: finalCodeEcole,
+        date_creation: date_creation || new Date().toISOString().split('T')[0],
       })
-      .select("id, uuid")
+      .select("id, uuid, nom, code_ecole")
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Erreur création école:", error);
+      throw error;
+    }
     
-    res.status(201).json(data);
+    res.status(201).json({
+      success: true,
+      ecole: data
+    });
   } catch (err) {
     console.error("❌ Erreur création école:", err);
     res.status(500).json({ error: "Erreur interne" });
@@ -597,20 +649,26 @@ router.post("/users", async (req, res) => {
       .insert({
         ecole_id,
         nom,
-        prenoms,
-        sexe,
+        prenoms: prenoms || null,
+        sexe: sexe || null,
         classe: classe || null,
         login: login.toLowerCase(),
         password_hash,
         role,
         is_active: true,
       })
-      .select("id, uuid")
+      .select("id, uuid, nom, prenoms, login, role")
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Erreur création utilisateur:", error);
+      throw error;
+    }
     
-    res.status(201).json(data);
+    res.status(201).json({
+      success: true,
+      user: data
+    });
   } catch (err) {
     console.error("❌ Erreur création utilisateur:", err);
     res.status(500).json({ error: "Erreur interne" });
@@ -619,7 +677,7 @@ router.post("/users", async (req, res) => {
 
 /* =========================================================
    SYNCHRONISATION UTILISATEUR POST-CONNEXION
-   ✅ CORRIGÉ : LEFT JOIN pour la recherche utilisateur
+   ✅ CORRIGÉ : Sans annee_scolaire_id dans ecoles
    ========================================================= */
 router.post("/sync-user", async (req, res) => {
   try {
@@ -638,13 +696,12 @@ router.post("/sync-user", async (req, res) => {
     const normalizedLogin = login.toLowerCase();
 
     // 1. Vérifier si l'utilisateur existe déjà
-    // ✅ CORRECTION : LEFT JOIN pour ne pas filtrer les utilisateurs sans école
     const { data: existingUser, error: userError } = await supabaseService
       .from("utilisateurs")
       .select(`
         id, 
         password_hash,
-        ecoles!left(nom, drena, iepp, directeur, annee_scolaire)
+        ecoles!left(id, uuid, nom, drena, iepp, directeur)
       `)
       .eq("login", normalizedLogin)
       .maybeSingle();
@@ -660,7 +717,6 @@ router.post("/sync-user", async (req, res) => {
         return res.status(401).json({ error: "Mot de passe incorrect" });
       }
 
-      // ✅ CORRECTION : LEFT JOIN pour récupérer toutes les infos
       const { data: user, error: fetchError } = await supabaseService
         .from("utilisateurs")
         .select(`
@@ -675,11 +731,15 @@ router.post("/sync-user", async (req, res) => {
           is_active,
           created_at,
           ecoles!left (
+            id,
+            uuid,
             nom,
             drena,
             iepp,
+            secteur,
             directeur,
-            annee_scolaire
+            code_ecole,
+            date_creation
           )
         `)
         .eq("id", existingUser.id)
@@ -702,12 +762,16 @@ router.post("/sync-user", async (req, res) => {
           login: user.login,
           role: user.role,
           classe: user.classe || "",
-          annee_scolaire: user.ecoles?.annee_scolaire || "",
+          annee_scolaire: "",
           ecole_id: user.ecole_id || 0,
+          ecole_uuid: user.ecoles?.uuid || "",
           ecole_nom: user.ecoles?.nom || "",
           drena: user.ecoles?.drena || "",
           iepp: user.ecoles?.iepp || "",
+          secteur: user.ecoles?.secteur || "",
           directeur: user.ecoles?.directeur || "",
+          code_ecole: user.ecoles?.code_ecole || "",
+          date_creation: user.ecoles?.date_creation || "",
         },
       });
     }
@@ -716,19 +780,24 @@ router.post("/sync-user", async (req, res) => {
     console.log("📝 [sync-user] Création nouvel utilisateur");
 
     let ecoleId = null;
+    let ecoleUuid = null;
+    
     if (ecole.uuid) {
       const { data: existingEcole } = await supabaseService
         .from("ecoles")
-        .select("id")
+        .select("id, uuid")
         .eq("uuid", ecole.uuid)
         .maybeSingle();
 
       if (existingEcole) {
         ecoleId = existingEcole.id;
+        ecoleUuid = existingEcole.uuid;
       }
     }
 
     if (!ecoleId) {
+      const finalCodeEcole = ecole.code_ecole || `ECO-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      
       const { data: newEcole, error: ecoleError } = await supabaseService
         .from("ecoles")
         .insert({
@@ -738,15 +807,19 @@ router.post("/sync-user", async (req, res) => {
           iepp: ecole.iepp,
           secteur: ecole.secteur || null,
           directeur: ecole.directeur || null,
-          annee_scolaire: ecole.annee_scolaire || null,
-          code_ecole: ecole.code_ecole || null,
-          date_creation: ecole.date_creation || null,
+          code_ecole: finalCodeEcole,
+          date_creation: ecole.date_creation || new Date().toISOString().split('T')[0],
         })
-        .select("id")
+        .select("id, uuid")
         .single();
 
-      if (ecoleError) throw ecoleError;
+      if (ecoleError) {
+        console.error("❌ [sync-user] Erreur création école:", ecoleError);
+        throw ecoleError;
+      }
+      
       ecoleId = newEcole.id;
+      ecoleUuid = newEcole.uuid;
     }
 
     const saltRounds = 10;
@@ -756,6 +829,7 @@ router.post("/sync-user", async (req, res) => {
       .from("utilisateurs")
       .insert({
         ecole_id: ecoleId,
+        ecole_uuid: ecoleUuid,
         nom,
         prenoms: prenoms || null,
         sexe: null,
@@ -775,18 +849,21 @@ router.post("/sync-user", async (req, res) => {
         classe,
         ecole_id,
         is_active,
-        created_at,
-        ecoles!left (
-          nom,
-          drena,
-          iepp,
-          directeur,
-          annee_scolaire
-        )
+        created_at
       `)
       .single();
 
-    if (createError) throw createError;
+    if (createError) {
+      console.error("❌ [sync-user] Erreur création utilisateur:", createError);
+      throw createError;
+    }
+
+    // Récupérer les infos complètes de l'école
+    const { data: ecoleData } = await supabaseService
+      .from("ecoles")
+      .select("uuid, nom, drena, iepp, secteur, directeur, code_ecole, date_creation")
+      .eq("id", ecoleId)
+      .single();
 
     const accessToken = generateAccessToken(newUser);
     const refreshToken = generateRefreshToken(newUser);
@@ -805,12 +882,16 @@ router.post("/sync-user", async (req, res) => {
         login: newUser.login,
         role: newUser.role,
         classe: newUser.classe || "",
-        annee_scolaire: newUser.ecoles?.annee_scolaire || "",
+        annee_scolaire: "",
         ecole_id: newUser.ecole_id || 0,
-        ecole_nom: newUser.ecoles?.nom || "",
-        drena: newUser.ecoles?.drena || "",
-        iepp: newUser.ecoles?.iepp || "",
-        directeur: newUser.ecoles?.directeur || "",
+        ecole_uuid: ecoleData?.uuid || "",
+        ecole_nom: ecoleData?.nom || "",
+        drena: ecoleData?.drena || "",
+        iepp: ecoleData?.iepp || "",
+        secteur: ecoleData?.secteur || "",
+        directeur: ecoleData?.directeur || "",
+        code_ecole: ecoleData?.code_ecole || "",
+        date_creation: ecoleData?.date_creation || "",
       },
     });
   } catch (err) {
