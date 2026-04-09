@@ -65,8 +65,6 @@ router.get("/health", (req, res) => {
 
 /* ====================================
    LOGIN (avec création session)
-   ✅ CORRIGÉ : LEFT JOIN pour admin sans école
-   ✅ CORRIGÉ : Pas de annee_scolaire_id dans ecoles
 ==================================== */
 router.post("/login", async (req, res) => {
   try {
@@ -82,7 +80,6 @@ router.post("/login", async (req, res) => {
     const normalizedLogin = login.toLowerCase();
     console.log("🔍 [LOGIN] Recherche utilisateur:", normalizedLogin);
 
-    // ✅ CORRECTION : LEFT JOIN sur ecoles (sans annee_scolaire_id)
     const { data: user, error } = await supabaseService
       .from("utilisateurs")
       .select(`
@@ -135,7 +132,6 @@ router.post("/login", async (req, res) => {
       return res.status(403).json({ error: "account_disabled" });
     }
 
-    // Vérification du mot de passe
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
     console.log("🔐 [LOGIN] Vérification mot de passe:", isPasswordValid ? "OK" : "ÉCHEC");
     
@@ -146,12 +142,8 @@ router.post("/login", async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    /* ===============================
-       SESSION MANAGEMENT
-    =============================== */
     const finalDeviceId = device_id || crypto.randomUUID();
 
-    // Désactiver ancienne session active sur le même appareil
     await supabaseService
       .from("sessions")
       .update({
@@ -161,7 +153,6 @@ router.post("/login", async (req, res) => {
       .eq("device_id", finalDeviceId)
       .eq("active", true);
 
-    // Créer nouvelle session
     await supabaseService.from("sessions").insert({
       utilisateur_id: user.id,
       ecole_id: user.ecole_id || null,
@@ -172,9 +163,6 @@ router.post("/login", async (req, res) => {
 
     console.log("✅ [LOGIN] Session créée pour device:", finalDeviceId);
 
-    /* ===============================
-       RESPONSE
-    =============================== */
     const responseUser = {
       id: user.id,
       uuid: user.uuid,
@@ -183,7 +171,6 @@ router.post("/login", async (req, res) => {
       login: user.login,
       role: user.role || "",
       classe: user.classe || "",
-      // annee_scolaire sera récupéré via une API séparée si nécessaire
       annee_scolaire: "",
       ecole_id: user.ecole_id || 0,
       ecole_uuid: user.ecoles?.uuid || "",
@@ -249,7 +236,6 @@ router.post("/logout", async (req, res) => {
 
 /* ====================================
    REFRESH TOKEN
-   ✅ CORRIGÉ : Même structure que login
 ==================================== */
 router.post("/refresh", async (req, res) => {
   try {
@@ -322,7 +308,6 @@ router.post("/refresh", async (req, res) => {
 
 /* ====================================
    GET /me
-   ✅ CORRIGÉ : Même structure que login
 ==================================== */
 router.get("/me", async (req, res) => {
   try {
@@ -403,7 +388,6 @@ router.get("/me", async (req, res) => {
 
 /* =========================================================
    ROUTE POUR RÉCUPÉRER L'ANNÉE SCOLAIRE ACTIVE D'UNE ÉCOLE
-   ✅ NOUVEAU : Pour obtenir l'année active sans polluer ecoles
    ========================================================= */
 router.get("/ecole/:ecoleId/annee-active", async (req, res) => {
   try {
@@ -565,6 +549,8 @@ router.get("/check-classe", async (req, res) => {
 /** POST /ecoles : créer une nouvelle école */
 router.post("/ecoles", async (req, res) => {
   try {
+    console.log("📥 [POST /ecoles] Body reçu:", JSON.stringify(req.body, null, 2));
+    
     const {
       nom,
       drena,
@@ -575,21 +561,29 @@ router.post("/ecoles", async (req, res) => {
       date_creation,
     } = req.body;
 
-    if (!nom || !drena || !iepp) {
-      return res.status(400).json({ error: "nom, drena, iepp requis" });
+    const missingFields = [];
+    if (!nom) missingFields.push("nom");
+    if (!drena) missingFields.push("drena");
+    if (!iepp) missingFields.push("iepp");
+    
+    if (missingFields.length > 0) {
+      console.log("❌ Champs manquants:", missingFields);
+      return res.status(400).json({ 
+        error: "nom, drena, iepp requis",
+        missing: missingFields 
+      });
     }
 
-    // Générer un code école si non fourni
-    const finalCodeEcole = code_ecole || `ECO-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    const finalCodeEcole = code_ecole || `ECO-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
 
     const { data, error } = await supabaseService
       .from("ecoles")
       .insert({
-        nom,
-        drena,
-        iepp,
-        secteur: secteur || null,
-        directeur: directeur || null,
+        nom: nom.trim(),
+        drena: drena.trim(),
+        iepp: iepp.trim(),
+        secteur: secteur?.trim() || null,
+        directeur: directeur?.trim() || null,
         code_ecole: finalCodeEcole,
         date_creation: date_creation || new Date().toISOString().split('T')[0],
       })
@@ -597,23 +591,29 @@ router.post("/ecoles", async (req, res) => {
       .single();
 
     if (error) {
-      console.error("❌ Erreur création école:", error);
+      console.error("❌ Erreur Supabase insertion école:", error);
+      
+      if (error.code === "23505") {
+        return res.status(409).json({ error: "Code école déjà utilisé" });
+      }
+      
       throw error;
     }
     
-    res.status(201).json({
-      success: true,
-      ecole: data
-    });
+    console.log("✅ École créée:", data);
+    
+    res.status(201).json(data);
   } catch (err) {
     console.error("❌ Erreur création école:", err);
-    res.status(500).json({ error: "Erreur interne" });
+    res.status(500).json({ error: "Erreur interne", details: err.message });
   }
 });
 
 /** POST /users : créer un nouvel utilisateur (directeur ou enseignant) */
 router.post("/users", async (req, res) => {
   try {
+    console.log("📥 [POST /users] Body reçu:", JSON.stringify(req.body, null, 2));
+    
     const {
       ecole_id,
       nom,
@@ -625,45 +625,65 @@ router.post("/users", async (req, res) => {
       role,
     } = req.body;
 
-    if (!ecole_id || !nom || !login || !mot_de_passe || !role) {
-      return res.status(400).json({ error: "Champs requis manquants" });
+    const missingFields = [];
+    if (!ecole_id) missingFields.push("ecole_id");
+    if (!nom) missingFields.push("nom");
+    if (!login) missingFields.push("login");
+    if (!mot_de_passe) missingFields.push("mot_de_passe");
+    if (!role) missingFields.push("role");
+    
+    if (missingFields.length > 0) {
+      console.log("❌ Champs manquants:", missingFields);
+      return res.status(400).json({ 
+        error: "Champs requis manquants",
+        missing: missingFields 
+      });
     }
 
-    // Vérifier si le login existe déjà
     const { data: existing } = await supabaseService
       .from("utilisateurs")
       .select("id")
-      .eq("login", login.toLowerCase())
+      .eq("login", login.toLowerCase().trim())
       .maybeSingle();
 
     if (existing) {
+      console.log("❌ Login déjà utilisé:", login);
       return res.status(409).json({ error: "Login déjà utilisé" });
     }
 
-    // Hachage du mot de passe
     const saltRounds = 10;
     const password_hash = await bcrypt.hash(mot_de_passe, saltRounds);
 
     const { data, error } = await supabaseService
       .from("utilisateurs")
       .insert({
-        ecole_id,
-        nom,
-        prenoms: prenoms || null,
+        ecole_id: Number(ecole_id),
+        nom: nom.trim(),
+        prenoms: prenoms?.trim() || null,
         sexe: sexe || null,
-        classe: classe || null,
-        login: login.toLowerCase(),
+        classe: classe?.trim() || null,
+        login: login.toLowerCase().trim(),
         password_hash,
-        role,
+        role: role.toLowerCase(),
         is_active: true,
       })
-      .select("id, uuid, nom, prenoms, login, role")
+      .select("id, uuid, nom, prenoms, login, role, ecole_id")
       .single();
 
     if (error) {
-      console.error("❌ Erreur création utilisateur:", error);
+      console.error("❌ Erreur Supabase insertion utilisateur:", error);
+      
+      if (error.code === "23505") {
+        return res.status(409).json({ error: "Login déjà utilisé" });
+      }
+      if (error.code === "23503") {
+        return res.status(400).json({ error: "École non trouvée" });
+      }
+      
       throw error;
     }
+    
+    console.log("✅ Utilisateur créé:", data);
     
     res.status(201).json({
       success: true,
@@ -671,13 +691,12 @@ router.post("/users", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Erreur création utilisateur:", err);
-    res.status(500).json({ error: "Erreur interne" });
+    res.status(500).json({ error: "Erreur interne", details: err.message });
   }
 });
 
 /* =========================================================
    SYNCHRONISATION UTILISATEUR POST-CONNEXION
-   ✅ CORRIGÉ : Sans annee_scolaire_id dans ecoles
    ========================================================= */
 router.post("/sync-user", async (req, res) => {
   try {
@@ -695,7 +714,6 @@ router.post("/sync-user", async (req, res) => {
 
     const normalizedLogin = login.toLowerCase();
 
-    // 1. Vérifier si l'utilisateur existe déjà
     const { data: existingUser, error: userError } = await supabaseService
       .from("utilisateurs")
       .select(`
@@ -708,7 +726,6 @@ router.post("/sync-user", async (req, res) => {
 
     if (userError) throw userError;
 
-    // 2. Si l'utilisateur existe, vérifier le mot de passe et retourner les tokens
     if (existingUser) {
       const isPasswordValid = await bcrypt.compare(password, existingUser.password_hash);
       console.log(`🔐 [sync-user] Vérification mot de passe pour ${login}: ${isPasswordValid ? "OK" : "ÉCHEC"}`);
@@ -776,7 +793,6 @@ router.post("/sync-user", async (req, res) => {
       });
     }
 
-    // 3. L'utilisateur n'existe pas → créer l'école et l'utilisateur
     console.log("📝 [sync-user] Création nouvel utilisateur");
 
     let ecoleId = null;
@@ -858,7 +874,6 @@ router.post("/sync-user", async (req, res) => {
       throw createError;
     }
 
-    // Récupérer les infos complètes de l'école
     const { data: ecoleData } = await supabaseService
       .from("ecoles")
       .select("uuid, nom, drena, iepp, secteur, directeur, code_ecole, date_creation")
