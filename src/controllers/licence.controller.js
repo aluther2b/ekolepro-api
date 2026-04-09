@@ -3,15 +3,8 @@ import { getLicenceByEcole, isLicenceValid } from "../services/licence.service.j
 import { getDevice, registerDevice, countDevices } from "../services/devices.service.js";
 import { supabaseService } from "../config/supabase.js";
 
-/**
- * Vérifie la validité de la licence pour l'école de l'utilisateur connecté
- * et gère l'enregistrement du device.
- * Route : GET /api/licence/check
- * Headers requis : Authorization: Bearer <token>, device-id: <id>
- */
 export async function checkLicence(req, res) {
   try {
-    // 🔥 Désactiver le cache HTTP pour cette route
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, private',
       'Pragma': 'no-cache',
@@ -19,17 +12,15 @@ export async function checkLicence(req, res) {
     });
 
     const device_id = req.headers["device-id"];
-    const user = req.user; // utilisateur injecté par requireAuth (depuis la table utilisateurs)
+    const user = req.user;
 
     console.log(`🔍 checkLicence - device_id: ${device_id}, user: ${user?.id}`);
 
-    // 1️⃣ Vérification du device ID
     if (!device_id) {
       console.warn("⚠️ device_id manquant");
       return res.status(400).json({ statut: "device_required" });
     }
 
-    // 2️⃣ Vérifier que l'utilisateur est bien associé à une école
     if (!user || !user.ecole_id) {
       console.warn("⚠️ Utilisateur sans école");
       return res.status(403).json({ statut: "user_not_found" });
@@ -38,10 +29,10 @@ export async function checkLicence(req, res) {
     const ecole_id = user.ecole_id;
     console.log(`🏫 École ID: ${ecole_id}`);
 
-    // 3️⃣ Récupérer la licence de l'école
+    // Récupérer la licence
     const { data: licence, error: licenceError } = await getLicenceByEcole(ecole_id);
 
-    if (licenceError && licenceError.code !== 'PGRST116') {
+    if (licenceError) {
       console.error("❌ Erreur getLicenceByEcole:", licenceError);
       return res.status(500).json({ statut: "unknown" });
     }
@@ -53,31 +44,41 @@ export async function checkLicence(req, res) {
 
     console.log("📄 Licence trouvée:", { statut: licence.statut, date_fin: licence.date_fin });
 
-    // 4️⃣ Vérifier le statut de la licence
     if (licence.statut === "suspended") {
       return res.json({ statut: "suspended" });
     }
 
     if (!isLicenceValid(licence)) {
       console.log("⚠️ Licence invalide (expirée ou statut non actif)");
-      return res.json({ statut: "expired" });
+      
+      // Mettre à jour le statut si expirée
+      if (licence.date_fin && new Date(licence.date_fin) < new Date()) {
+        await supabaseService
+          .from("licences")
+          .update({ statut: "expired", updated_at: new Date().toISOString() })
+          .eq("id", licence.id);
+      }
+      
+      return res.json({ statut: "expired", date_fin: licence.date_fin });
     }
 
-    // 5️⃣ Gestion du device
+    // Gestion du device
     const { data: device, error: deviceError } = await getDevice(device_id);
 
     if (deviceError) {
       console.error("❌ Erreur getDevice:", deviceError);
-      return res.status(500).json({ statut: "unknown" });
+      // Ne pas bloquer, continuer
     }
 
     if (device) {
       console.log("📱 Device déjà enregistré:", device.device_id);
-      if (device.blocked) {
+      
+      // ✅ CORRECTION : utiliser 'statut' pour vérifier si bloqué
+      if (device.statut === "bloque") {
         return res.json({ statut: "device_blocked" });
       }
 
-      // Mettre à jour la dernière connexion
+      // Mettre à jour last_seen
       await supabaseService
         .from("devices")
         .update({ last_seen: new Date().toISOString() })
@@ -86,21 +87,31 @@ export async function checkLicence(req, res) {
       return res.json({
         statut: "active",
         date_fin: licence.date_fin,
+        licence_key: licence.cle  // ✅ Pour la synchronisation locale
       });
     }
 
     // Nouveau device → vérifier la limite
     console.log("📱 Nouveau device, vérification limite");
+    
     const { count, error: countError } = await countDevices(ecole_id);
 
     if (countError) {
       console.error("❌ Erreur countDevices:", countError);
-      return res.status(500).json({ statut: "unknown" });
+      // Si erreur, on autorise quand même pour ne pas bloquer l'utilisateur
     }
 
-    if (count >= licence.max_devices) {
+    const currentCount = count || 0;
+    const maxDevices = licence.max_devices || 10;
+    
+    console.log(`📊 Devices actuels: ${currentCount}/${maxDevices}`);
+
+    if (currentCount >= maxDevices) {
       console.warn("⚠️ Limite de devices atteinte");
-      return res.json({ statut: "device_blocked" });
+      return res.json({ 
+        statut: "device_blocked",
+        message: `Limite de ${maxDevices} appareils atteinte`
+      });
     }
 
     // Enregistrer le nouveau device
@@ -108,13 +119,19 @@ export async function checkLicence(req, res) {
 
     if (registerError) {
       console.error("❌ Erreur registerDevice:", registerError);
-      return res.status(500).json({ statut: "unknown" });
+      
+      if (registerError === "device_limit_reached") {
+        return res.json({ statut: "device_blocked" });
+      }
+      // Ne pas bloquer l'utilisateur pour d'autres erreurs
+    } else {
+      console.log("✅ Nouveau device enregistré avec succès");
     }
 
-    console.log("✅ Nouveau device enregistré avec succès");
     return res.json({
       statut: "active",
       date_fin: licence.date_fin,
+      licence_key: licence.cle  // ✅ Pour la synchronisation locale
     });
 
   } catch (err) {

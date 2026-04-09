@@ -2,17 +2,25 @@
 import { supabaseService } from "../config/supabase.js";
 
 export async function getLicenceByEcole(ecole_id) {
-  const { data, error } = await supabaseService
-    .from("licences")
-    .select("*")
-    .eq("ecole_id", ecole_id)
-    .single();
+  try {
+    // ✅ Utiliser maybeSingle() au lieu de single() pour éviter l'erreur PGRST116
+    const { data, error } = await supabaseService
+      .from("licences")
+      .select("*")
+      .eq("ecole_id", ecole_id)
+      .eq("statut", "active")  // ✅ Filtrer directement sur active
+      .maybeSingle();
 
-  if (error && error.code !== 'PGRST116') {
-    console.error("❌ Erreur getLicenceByEcole:", error);
+    if (error) {
+      console.error("❌ Erreur getLicenceByEcole:", error);
+      return { data: null, error };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    console.error("❌ Exception getLicenceByEcole:", err);
+    return { data: null, error: err };
   }
-
-  return { data, error };
 }
 
 export function isLicenceValid(licence) {
@@ -24,7 +32,10 @@ export function isLicenceValid(licence) {
 
   if (licence.date_fin) {
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
     const fin = new Date(licence.date_fin);
+    fin.setHours(0, 0, 0, 0);
 
     if (fin < today) {
       return false;
@@ -36,21 +47,26 @@ export function isLicenceValid(licence) {
 
 export async function updateLicenceDevicesCount(ecole_id) {
   try {
-    // Compter les devices actifs
-    const { count } = await supabaseService
+    // ✅ CORRECTION : utiliser 'statut' = 'autorise'
+    const { count, error: countError } = await supabaseService
       .from("devices")
       .select("*", { count: "exact", head: true })
       .eq("ecole_id", ecole_id)
-      .eq("blocked", false);
+      .eq("statut", "autorise");
 
-    // Mettre à jour le compteur dans la licence
+    if (countError) {
+      console.error("❌ Erreur comptage devices:", countError);
+      return false;
+    }
+
     const { error } = await supabaseService
       .from("licences")
       .update({ 
         current_devices: count || 0,
         updated_at: new Date().toISOString()
       })
-      .eq("ecole_id", ecole_id);
+      .eq("ecole_id", ecole_id)
+      .eq("statut", "active");
 
     if (error) {
       console.error("❌ Erreur updateLicenceDevicesCount:", error);
