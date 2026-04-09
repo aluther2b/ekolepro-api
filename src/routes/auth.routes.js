@@ -20,7 +20,7 @@ const REFRESH_EXPIRES_IN = "30d";
 function generateAccessToken(user) {
   return jwt.sign(
     {
-      id: user.id,              // ✅ AJOUT CRITIQUE
+      id: user.id,              
       uuid: user.uuid,
       login: user.login,
       role: user.role,
@@ -99,7 +99,7 @@ router.post("/login", async (req, res) => {
     if (!user.is_active)
       return res.status(403).json({ error: "account_disabled" });
 
-    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
     if (!isPasswordValid)
       return res.status(401).json({ error: "invalid_credentials" });
 

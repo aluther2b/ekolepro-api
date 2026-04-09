@@ -1,10 +1,16 @@
 // hashAdmin.js
 import bcrypt from "bcrypt";
 
-const password = "Admins123";
+async function hashPassword() {
+  const password = "Admins123";
 
-const salt = await bcrypt.genSalt(10);
-const hash = await bcrypt.hash(password, salt);
+  try {
+    const hash = await bcrypt.hash(password, 10);
 
-console.log("SALT:", salt);
-console.log("HASH:", hash);
+    console.log("HASH:", hash);
+  } catch (error) {
+    console.error("Erreur:", error);
+  }
+}
+
+hashPassword();
