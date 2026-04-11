@@ -8,13 +8,7 @@ import { createPaydunyaInvoice } from "../services/paydunya.service.js";
 ===================================================== */
 export async function initPayment(req, res) {
   try {
-    const ecoleId = req.ecoleId || req.user?.ecole_id;
-
-    console.log("📊 [initPayment] Données:", {
-      ecoleId,
-      userId: req.user?.id,
-      userLogin: req.user?.login
-    });
+    const ecoleId = req.ecoleId; // injecté par requireAuth
 
     if (!ecoleId) {
       return res.status(400).json({
@@ -24,15 +18,8 @@ export async function initPayment(req, res) {
     }
 
     const amount = PAYMENT_CONFIG.AMOUNT_YEARLY;
-    const callbackUrl = process.env.PAYDUNYA_CALLBACK_URL || PAYMENT_CONFIG.PAYDUNYA.CALLBACK_URL;
 
-    console.log("💰 [initPayment] Configuration:", {
-      amount,
-      callbackUrl,
-      baseUrl: process.env.PAYDUNYA_BASE_URL
-    });
-
-    // 1️⃣ Création du paiement en base
+    // 1️⃣ Création du paiement en base (sans operator)
     const payment = await createPayment({
       ecole_id: ecoleId,
       amount,
@@ -40,39 +27,16 @@ export async function initPayment(req, res) {
       duration_days: PAYMENT_CONFIG.DURATION_YEARLY,
     });
 
-    console.log("✅ [initPayment] Paiement créé:", payment.id, payment.transaction_ref);
-
     // 2️⃣ Création de la facture PayDunya
-    let invoice;
-    try {
-      invoice = await createPaydunyaInvoice({
-        amount,
-        reference: payment.transaction_ref,
-        callback_url: callbackUrl,
-      });
-    } catch (paydunyaError) {
-      console.error("❌ [initPayment] Erreur PayDunya:", paydunyaError.message);
-      
-      // Mettre à jour le paiement comme échoué
-      await supabaseService
-        .from("payments")
-        .update({ statut: "failed", validated_at: new Date().toISOString() })
-        .eq("id", payment.id);
-      
-      return res.status(500).json({
-        success: false,
-        message: "Erreur lors de la création de la facture: " + paydunyaError.message,
-      });
-    }
+    const invoice = await createPaydunyaInvoice({
+      amount,
+      reference: payment.transaction_ref,
+      callback_url: process.env.PAYDUNYA_CALLBACK_URL,
+    });
 
     if (!invoice?.payment_url) {
-      return res.status(500).json({
-        success: false,
-        message: "Lien de paiement invalide",
-      });
+      throw new Error("Lien PayDunya invalide");
     }
-
-    console.log("🔗 [initPayment] Payment URL:", invoice.payment_url);
 
     // 3️⃣ Réponse au mobile
     return res.json({
@@ -84,10 +48,10 @@ export async function initPayment(req, res) {
     });
 
   } catch (err) {
-    console.error("❌ [initPayment] Erreur générale:", err);
+    console.error("❌ initPayment error:", err);
     return res.status(500).json({
       success: false,
-      message: "Erreur initialisation paiement: " + err.message,
+      message: "Erreur initialisation paiement",
     });
   }
 }

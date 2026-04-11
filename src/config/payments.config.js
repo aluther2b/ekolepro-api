@@ -7,7 +7,7 @@ export const PAYMENT_CONFIG = {
   /* =====================================================
      💰 TARIFICATION
   ===================================================== */
-  AMOUNT_YEARLY: Number(process.env.AMOUNT_YEARLY) || 50, // FCFA
+  AMOUNT_YEARLY: Number(process.env.AMOUNT_YEARLY) || 25000, // FCFA
   DURATION_YEARLY: 365,
   CURRENCY: "XOF",
 
