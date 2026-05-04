@@ -53,6 +53,37 @@ function verifyToken(token) {
 }
 
 /* ====================================
+   FONCTION HELPER POUR FORMER L'UTILISATEUR
+==================================== */
+function formatUserResponse(user) {
+  // ✅ Récupérer la classe depuis utilisateur_annees si disponible
+  const classe = user.utilisateur_annees?.[0]?.classe || "";
+  const annee_scolaire = user.utilisateur_annees?.[0]?.annees_scolaires_globales?.libelle || "";
+
+  return {
+    id: user.id,
+    uuid: user.uuid,
+    nom: user.nom || "",
+    prenoms: user.prenoms || "",
+    login: user.login,
+    role: user.role || "",
+    classe: classe,
+    annee_scolaire: annee_scolaire,
+    ecole_id: user.ecole_id || 0,
+    ecole_uuid: user.ecoles?.uuid || "",
+    ecole_nom: user.ecoles?.nom || "",
+    drena: user.ecoles?.drena || "",
+    iepp: user.ecoles?.iepp || "",
+    secteur: user.ecoles?.secteur || "",
+    directeur: user.ecoles?.directeur || "",
+    code_ecole: user.ecoles?.code_ecole || "",
+    date_creation: user.ecoles?.date_creation || "",
+    is_active: user.is_active,
+    created_at: user.created_at,
+  };
+}
+
+/* ====================================
    HEALTH CHECK
 ==================================== */
 router.get("/health", (req, res) => {
@@ -80,6 +111,7 @@ router.post("/login", async (req, res) => {
     const normalizedLogin = login.toLowerCase();
     console.log("🔍 [LOGIN] Recherche utilisateur:", normalizedLogin);
 
+    // ✅ REQUÊTE CORRIGÉE : utiliser utilisateur_annees au lieu de classe
     const { data: user, error } = await supabaseService
       .from("utilisateurs")
       .select(`
@@ -89,7 +121,6 @@ router.post("/login", async (req, res) => {
         prenoms,
         login,
         role,
-        classe,
         ecole_id,
         is_active,
         created_at,
@@ -104,9 +135,17 @@ router.post("/login", async (req, res) => {
           directeur,
           code_ecole,
           date_creation
+        ),
+        utilisateur_annees!left (
+          classe,
+          est_active,
+          annees_scolaires_globales!left (
+            libelle
+          )
         )
       `)
       .eq("login", normalizedLogin)
+      .eq("utilisateur_annees.est_active", true)
       .maybeSingle();
 
     if (error) {
@@ -124,7 +163,8 @@ router.post("/login", async (req, res) => {
       login: user.login, 
       role: user.role,
       ecole_id: user.ecole_id,
-      has_ecoles: !!user.ecoles
+      has_ecoles: !!user.ecoles,
+      classe: user.utilisateur_annees?.[0]?.classe || "N/A"
     });
 
     if (!user.is_active) {
@@ -163,27 +203,7 @@ router.post("/login", async (req, res) => {
 
     console.log("✅ [LOGIN] Session créée pour device:", finalDeviceId);
 
-    const responseUser = {
-      id: user.id,
-      uuid: user.uuid,
-      nom: user.nom || "",
-      prenoms: user.prenoms || "",
-      login: user.login,
-      role: user.role || "",
-      classe: user.classe || "",
-      annee_scolaire: "",
-      ecole_id: user.ecole_id || 0,
-      ecole_uuid: user.ecoles?.uuid || "",
-      ecole_nom: user.ecoles?.nom || "",
-      drena: user.ecoles?.drena || "",
-      iepp: user.ecoles?.iepp || "",
-      secteur: user.ecoles?.secteur || "",
-      directeur: user.ecoles?.directeur || "",
-      code_ecole: user.ecoles?.code_ecole || "",
-      date_creation: user.ecoles?.date_creation || "",
-      is_active: user.is_active,
-      created_at: user.created_at,
-    };
+    const responseUser = formatUserResponse(user);
 
     console.log("✅ [LOGIN] Connexion réussie:", { 
       userId: user.id, 
@@ -262,7 +282,6 @@ router.post("/refresh", async (req, res) => {
         prenoms,
         login,
         role,
-        classe,
         ecole_id,
         is_active,
         created_at,
@@ -276,9 +295,17 @@ router.post("/refresh", async (req, res) => {
           directeur,
           code_ecole,
           date_creation
+        ),
+        utilisateur_annees!left (
+          classe,
+          est_active,
+          annees_scolaires_globales!left (
+            libelle
+          )
         )
       `)
       .eq("id", payload.id)
+      .eq("utilisateur_annees.est_active", true)
       .maybeSingle();
 
     if (error || !user) {
@@ -333,7 +360,6 @@ router.get("/me", async (req, res) => {
         prenoms,
         login,
         role,
-        classe,
         ecole_id,
         is_active,
         created_at,
@@ -347,9 +373,17 @@ router.get("/me", async (req, res) => {
           directeur,
           code_ecole,
           date_creation
+        ),
+        utilisateur_annees!left (
+          classe,
+          est_active,
+          annees_scolaires_globales!left (
+            libelle
+          )
         )
       `)
       .eq("id", payload.id)
+      .eq("utilisateur_annees.est_active", true)
       .maybeSingle();
 
     if (error || !user) {
@@ -358,27 +392,7 @@ router.get("/me", async (req, res) => {
 
     res.json({
       success: true,
-      user: {
-        id: user.id,
-        uuid: user.uuid,
-        nom: user.nom || "",
-        prenoms: user.prenoms || "",
-        login: user.login,
-        role: user.role || "",
-        classe: user.classe || "",
-        annee_scolaire: "",
-        ecole_id: user.ecole_id || 0,
-        ecole_uuid: user.ecoles?.uuid || "",
-        ecole_nom: user.ecoles?.nom || "",
-        drena: user.ecoles?.drena || "",
-        iepp: user.ecoles?.iepp || "",
-        secteur: user.ecoles?.secteur || "",
-        directeur: user.ecoles?.directeur || "",
-        code_ecole: user.ecoles?.code_ecole || "",
-        date_creation: user.ecoles?.date_creation || "",
-        is_active: user.is_active,
-        created_at: user.created_at,
-      },
+      user: formatUserResponse(user),
     });
   } catch (err) {
     console.error("❌ [ME] Erreur:", err);
@@ -394,10 +408,11 @@ router.get("/ecole/:ecoleId/annee-active", async (req, res) => {
     const { ecoleId } = req.params;
     
     const { data, error } = await supabaseService
-      .from("annees_scolaires")
+      .from("annees_scolaires_globales")
       .select("*")
-      .eq("ecole_id", ecoleId)
       .eq("is_active", true)
+      .order("date_debut", { ascending: false })
+      .limit(1)
       .maybeSingle();
       
     if (error) throw error;
@@ -529,12 +544,13 @@ router.get("/check-classe", async (req, res) => {
       return res.status(400).json({ error: "ecole_id et classe requis" });
     }
 
+    // ✅ Utiliser utilisateur_annees au lieu de utilisateurs.classe
     const { data, error } = await supabaseService
-      .from("utilisateurs")
+      .from("utilisateur_annees")
       .select("id")
       .eq("ecole_id", ecole_id)
       .eq("classe", classe)
-      .eq("role", "enseignant")
+      .eq("est_active", true)
       .maybeSingle();
 
     if (error) throw error;
@@ -654,14 +670,14 @@ router.post("/users", async (req, res) => {
     const saltRounds = 10;
     const password_hash = await bcrypt.hash(mot_de_passe, saltRounds);
 
-    const { data, error } = await supabaseService
+    // ✅ Créer l'utilisateur SANS la colonne classe
+    const { data: newUser, error } = await supabaseService
       .from("utilisateurs")
       .insert({
         ecole_id: Number(ecole_id),
         nom: nom.trim(),
         prenoms: prenoms?.trim() || null,
         sexe: sexe || null,
-        classe: classe?.trim() || null,
         login: login.toLowerCase().trim(),
         password_hash,
         role: role.toLowerCase(),
@@ -682,12 +698,35 @@ router.post("/users", async (req, res) => {
       
       throw error;
     }
+
+    // ✅ Créer l'entrée dans utilisateur_annees avec la classe
+    if (classe) {
+      // Récupérer l'année scolaire active
+      const { data: anneeActive } = await supabaseService
+        .from("annees_scolaires_globales")
+        .select("id")
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
+      if (anneeActive) {
+        await supabaseService
+          .from("utilisateur_annees")
+          .insert({
+            utilisateur_id: newUser.id,
+            annee_scolaire_globale_id: anneeActive.id,
+            ecole_id: Number(ecole_id),
+            classe: classe.trim(),
+            est_active: true,
+          });
+      }
+    }
     
-    console.log("✅ Utilisateur créé:", data);
+    console.log("✅ Utilisateur créé:", newUser);
     
     res.status(201).json({
       success: true,
-      user: data
+      user: newUser
     });
   } catch (err) {
     console.error("❌ Erreur création utilisateur:", err);
@@ -697,7 +736,7 @@ router.post("/users", async (req, res) => {
 
 /* =========================================================
    SYNCHRONISATION UTILISATEUR POST-CONNEXION
-   ========================================================= */
+========================================================= */
 router.post("/sync-user", async (req, res) => {
   try {
     const { login, password, nom, prenoms, role, classe, ecole } = req.body;
@@ -743,7 +782,6 @@ router.post("/sync-user", async (req, res) => {
           prenoms,
           login,
           role,
-          classe,
           ecole_id,
           is_active,
           created_at,
@@ -757,9 +795,17 @@ router.post("/sync-user", async (req, res) => {
             directeur,
             code_ecole,
             date_creation
+          ),
+          utilisateur_annees!left (
+            classe,
+            est_active,
+            annees_scolaires_globales!left (
+              libelle
+            )
           )
         `)
         .eq("id", existingUser.id)
+        .eq("utilisateur_annees.est_active", true)
         .single();
 
       if (fetchError) throw fetchError;
@@ -771,25 +817,7 @@ router.post("/sync-user", async (req, res) => {
         success: true,
         accessToken,
         refreshToken,
-        user: {
-          id: user.id,
-          uuid: user.uuid,
-          nom: user.nom,
-          prenoms: user.prenoms,
-          login: user.login,
-          role: user.role,
-          classe: user.classe || "",
-          annee_scolaire: "",
-          ecole_id: user.ecole_id || 0,
-          ecole_uuid: user.ecoles?.uuid || "",
-          ecole_nom: user.ecoles?.nom || "",
-          drena: user.ecoles?.drena || "",
-          iepp: user.ecoles?.iepp || "",
-          secteur: user.ecoles?.secteur || "",
-          directeur: user.ecoles?.directeur || "",
-          code_ecole: user.ecoles?.code_ecole || "",
-          date_creation: user.ecoles?.date_creation || "",
-        },
+        user: formatUserResponse(user),
       });
     }
 
@@ -848,8 +876,6 @@ router.post("/sync-user", async (req, res) => {
         ecole_uuid: ecoleUuid,
         nom,
         prenoms: prenoms || null,
-        sexe: null,
-        classe: classe || null,
         login: normalizedLogin,
         password_hash,
         role,
@@ -862,7 +888,6 @@ router.post("/sync-user", async (req, res) => {
         prenoms,
         login,
         role,
-        classe,
         ecole_id,
         is_active,
         created_at
@@ -872,6 +897,28 @@ router.post("/sync-user", async (req, res) => {
     if (createError) {
       console.error("❌ [sync-user] Erreur création utilisateur:", createError);
       throw createError;
+    }
+
+    // ✅ Créer l'entrée dans utilisateur_annees
+    if (classe) {
+      const { data: anneeActive } = await supabaseService
+        .from("annees_scolaires_globales")
+        .select("id")
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
+      if (anneeActive) {
+        await supabaseService
+          .from("utilisateur_annees")
+          .insert({
+            utilisateur_id: newUser.id,
+            annee_scolaire_globale_id: anneeActive.id,
+            ecole_id: ecoleId,
+            classe: classe,
+            est_active: true,
+          });
+      }
     }
 
     const { data: ecoleData } = await supabaseService
@@ -896,7 +943,7 @@ router.post("/sync-user", async (req, res) => {
         prenoms: newUser.prenoms,
         login: newUser.login,
         role: newUser.role,
-        classe: newUser.classe || "",
+        classe: classe || "",
         annee_scolaire: "",
         ecole_id: newUser.ecole_id || 0,
         ecole_uuid: ecoleData?.uuid || "",
