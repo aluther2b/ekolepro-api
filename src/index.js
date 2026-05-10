@@ -10,6 +10,7 @@ import callbackRoutes from "./routes/callbacks.routes.js";
 
 /* ===== ROUTES AUTH ===== */
 import authRoutes from "./routes/auth.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
 
 /* ===== ROUTES PROTÉGÉES ===== */
 import paymentRoutes from "./routes/payments.routes.js";
@@ -58,6 +59,7 @@ app.get("/api/health", (req, res) => {
 /* ================= ROUTES PUBLIQUES ================= */
 app.use("/api/callbacks", callbackRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/upload", uploadRoutes); 
 
 /* ================= ROUTES PROTÉGÉES ================= */
 app.use("/api/payments", requireAuth, paymentRoutes);

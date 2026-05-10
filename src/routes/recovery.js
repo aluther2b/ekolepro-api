@@ -1,3 +1,4 @@
+// src/routes/recovery.js
 import express from "express";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { supabaseService } from "../config/supabase.js";
